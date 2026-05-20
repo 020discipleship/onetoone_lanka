@@ -1,0 +1,330 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mobile Web Wireframe</title>
+  <style>
+    :root {
+      --ink: #222;
+      --muted: #666;
+      --line: #d3d3d3;
+      --soft: #efeff2;
+      --paper: #f7f7f8;
+      --accent: #111;
+      --accent-soft: #ededed;
+      --phone-width: 390px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      font-family: Arial, "Apple SD Gothic Neo", sans-serif;
+      background: radial-gradient(circle, #dedee2 1px, transparent 1px) 0 0 / 18px 18px, var(--paper);
+    }
+    a { color: inherit; text-decoration: none; }
+    .page { max-width: 1440px; margin: 0 auto; padding: 32px 20px 56px; }
+    .topbar { padding: 24px; border: 1px solid var(--line); background: rgba(255,255,255,.9); }
+    .eyebrow { color: var(--ink); font-size: 13px; font-weight: 800; }
+    h1, h2, h3, p { margin: 0; }
+    h1 { margin-top: 10px; max-width: 900px; font-size: 30px; line-height: 1.25; }
+    .summary { margin-top: 10px; max-width: 900px; color: var(--muted); font-size: 15px; line-height: 1.45; }
+    .nav {
+      position: sticky; top: 0; z-index: 5;
+      display: flex; gap: 8px; overflow-x: auto;
+      margin: 18px -20px 0; padding: 12px 20px;
+      border-bottom: 1px solid var(--line); background: rgba(247,247,248,.95);
+    }
+    .nav a { flex: 0 0 auto; padding: 8px 12px; border: 1px solid var(--line); background: #fff; font-size: 13px; font-weight: 800; }
+    .section { margin-top: 36px; }
+    .section-head { display: flex; justify-content: space-between; gap: 16px; margin-bottom: 16px; padding-bottom: 10px; border-bottom: 1px solid var(--line); }
+    .section-note { color: var(--muted); font-size: 13px; text-align: right; }
+    .board { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--phone-width)), 1fr)); gap: 20px; align-items: start; }
+    .phone-frame {
+      width: min(100%, var(--phone-width)); min-height: 720px; margin: 0 auto; overflow: hidden;
+      border: 2px solid #222; border-radius: 28px; background: #fff; box-shadow: 0 12px 24px rgba(0,0,0,.08);
+    }
+    .phone-top { display: flex; align-items: center; justify-content: space-between; height: 36px; padding: 0 18px; color: #777; font-size: 11px; font-weight: 800; background: #fbfbfc; }
+    .speaker { width: 74px; height: 5px; border-radius: 999px; background: #d5d5da; }
+    .screen { display: flex; flex-direction: column; min-height: 684px; background: #fff; }
+    .appbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 56px; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+    .brand { font-size: 16px; font-weight: 800; }
+    .icon-btn { display: grid; place-items: center; width: 36px; height: 36px; border: 1px solid var(--line); background: var(--soft); color: #555; font-size: 18px; font-weight: 800; }
+    .home-appbar { align-items: flex-start; }
+    .home-actions { display: flex; gap: 8px; margin-left: auto; }
+    .home-actions .button { min-height: 36px; padding: 8px 10px; font-size: 12px; white-space: nowrap; }
+    .menu-popover { position: relative; }
+    .menu-popover summary { list-style: none; cursor: pointer; }
+    .menu-popover summary::-webkit-details-marker { display: none; }
+    .menu-panel { position: absolute; top: 42px; right: 0; z-index: 2; width: 230px; padding: 12px; border: 1px solid var(--line); background: #fff; box-shadow: 0 10px 18px rgba(0,0,0,.12); }
+    .content { display: flex; flex: 1; flex-direction: column; gap: 14px; padding: 16px; }
+    .home-content { padding: 0; }
+    .image-placeholder {
+      display: grid; place-items: center; min-height: 128px; border: 1px dashed #aaa;
+      background: linear-gradient(135deg, transparent 49.7%, #cfcfd6 50%, transparent 50.3%), linear-gradient(45deg, transparent 49.7%, #cfcfd6 50%, transparent 50.3%), var(--soft);
+      color: #555; font-size: 13px; font-weight: 800; text-align: center;
+    }
+    .home-image { flex: 1; min-height: 0; border: 0; border-top: 1px dashed #aaa; font-size: 18px; }
+    .card, .list-item, .metric { padding: 14px; border: 1px solid var(--line); background: #fff; }
+    .card.filled, .metric { background: var(--soft); }
+    .card.soft { background: #fafafa; }
+    .label { color: var(--muted); font-size: 12px; font-weight: 800; }
+    .text, .status { color: var(--muted); font-size: 13px; line-height: 1.45; }
+    .status.ok { color: #236b35; }
+    .status.warn { color: #8a5c00; }
+    .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .list { display: grid; gap: 8px; }
+    .list-item strong { display: block; margin-bottom: 4px; font-size: 14px; }
+    .button, .choice-button {
+      display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 10px 12px;
+      border: 1px solid #222; background: #222; color: #fff; font-size: 14px; font-weight: 800; text-align: center;
+    }
+    .button.secondary, .choice-button { border-color: var(--line); background: #fff; color: var(--ink); }
+    .field { display: grid; gap: 6px; }
+    .input, .textarea { padding: 12px; border: 1px solid var(--line); background: #fafafa; color: #777; font-size: 13px; }
+    .input { min-height: 44px; }
+    .textarea { min-height: 108px; }
+    .pill { display: inline-flex; min-height: 26px; align-items: center; padding: 5px 8px; border: 1px solid var(--line); background: #fff; color: var(--muted); font-size: 12px; font-weight: 800; }
+    .progress { height: 12px; border: 1px solid var(--line); background: #fff; overflow: hidden; }
+    .progress span { display: block; height: 100%; background: var(--accent); }
+    .tabbar { display: grid; grid-template-columns: repeat(4, 1fr); margin-top: auto; border-top: 1px solid var(--line); background: #fbfbfc; }
+    .tabbar span { display: grid; place-items: center; min-height: 52px; color: var(--muted); font-size: 11px; font-weight: 800; text-align: center; }
+    .tabbar .active { color: var(--ink); background: var(--accent-soft); }
+    .timeline { display: grid; gap: 10px; padding-left: 9px; border-left: 2px solid var(--line); }
+    .week-table { display: grid; border: 1px solid var(--line); border-bottom: 0; background: #fff; }
+    .week-row { display: grid; grid-template-columns: 44px 76px 48px 86px 1fr; min-height: 42px; border-bottom: 1px solid var(--line); }
+    .week-row span { display: flex; align-items: center; min-width: 0; padding: 7px 6px; border-right: 1px solid #e8e8e8; color: var(--muted); font-size: 10px; line-height: 1.2; }
+    .week-row span:last-child { border-right: 0; }
+    .week-row.head { min-height: 34px; background: var(--soft); font-weight: 800; }
+    .check-box { justify-content: center; }
+    .check-box::before { content: ""; width: 16px; height: 16px; border: 1px solid #777; background: #fff; }
+    .table { display: grid; border: 1px solid var(--line); border-bottom: 0; }
+    .table-row { display: grid; grid-template-columns: 1.1fr .9fr .8fr; min-height: 40px; border-bottom: 1px solid var(--line); }
+    .table-row span { display: flex; align-items: center; padding: 8px; border-right: 1px solid #e8e8e8; font-size: 12px; }
+    .table-row span:last-child { border-right: 0; }
+    .table-row.head { background: var(--soft); font-weight: 800; }
+    .bottom-actions { margin-top: auto; display: grid; gap: 8px; }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header class="topbar">
+      <div class="eyebrow">Mobile Web Wireframe / Low Fidelity</div>
+      <h1>Mobile Web Wireframe for One-on-One Discipleship Program Management</h1>
+      <p class="summary">A static 390px mobile wireframe covering home, authentication, mentee, mentor, and admin workflows.</p>
+    </header>
+    <nav class="nav">
+      <a href="#home">Home/Auth</a><a href="#mentee">Mentee</a><a href="#mentor">Mentor</a><a href="#profile">Profile</a><a href="#admin">Admin</a>
+    </nav>
+
+    <section class="section" id="home">
+      <div class="section-head"><h2>Home / Auth</h2><p class="section-note">Home image, login, sign-up, and ABOUT menu</p></div>
+      <div class="board">
+        <article class="phone-frame">
+          <div class="phone-top"><span>10:41</span><span class="speaker"></span><span>100%</span></div>
+          <div class="screen">
+            <div class="appbar home-appbar">
+              <div class="brand">One to One Discipleship</div>
+              <div class="home-actions">
+                <a class="button" href="#login">Log In</a>
+                <a class="button secondary" href="#signup">Sign Up</a>
+                <details class="menu-popover">
+                  <summary class="icon-btn">≡</summary>
+                  <div class="menu-panel"><a class="list-item" href="#about"><strong>ABOUT</strong><span class="status">One-to-one discipleship description</span></a></div>
+                </details>
+              </div>
+            </div>
+            <div class="content home-content"><div class="image-placeholder home-image">One-to-One Discipleship Image</div></div>
+          </div>
+        </article>
+
+        <article class="phone-frame" id="about">
+          <div class="phone-top"><span>10:41</span><span class="speaker"></span><span>100%</span></div>
+          <div class="screen">
+            <div class="appbar"><div class="icon-btn">‹</div><div class="brand">ABOUT</div><div class="icon-btn">≡</div></div>
+            <div class="content">
+              <div class="image-placeholder">One-to-One Discipleship Image</div>
+              <div class="card filled">
+                <strong>What is One to One Discipleship?</strong>
+                <p class="text">A guided discipleship journey where a mentor walks with a mentee through a 16-week course.</p>
+              </div>
+              <div class="list">
+                <div class="list-item"><strong>For Mentees</strong><span class="status">View weekly progress, write records, and submit testimony.</span></div>
+                <div class="list-item"><strong>For Mentors</strong><span class="status">Track each mentee, check QT and memorizing verse, and write special notes.</span></div>
+                <div class="list-item"><strong>For Admins</strong><span class="status">Manage members, roles, resources, and overall progress.</span></div>
+              </div>
+              <div class="bottom-actions"><a class="button" href="#signup">Start Sign Up</a><a class="button secondary" href="#login">Log In</a></div>
+            </div>
+          </div>
+        </article>
+
+        <article class="phone-frame" id="signup">
+          <div class="phone-top"><span>10:41</span><span class="speaker"></span><span>100%</span></div>
+          <div class="screen">
+            <div class="appbar"><div class="icon-btn">‹</div><div class="brand">Sign Up</div><div class="icon-btn">?</div></div>
+            <div class="content">
+              <div class="card filled"><strong>Enter Basic Information</strong><p class="text">After sign-up, an admin can verify the requested role.</p></div>
+              <div class="field"><span class="label">Name</span><div class="input">Alex Kim</div></div>
+              <div class="field"><span class="label">Email</span><div class="input">name@example.com</div></div>
+              <div class="field"><span class="label">Password</span><div class="input">Enter at least 8 characters</div></div>
+              <div class="field"><span class="label">Requested Role</span><div class="grid-2"><button class="choice-button" type="button">Mentee</button><button class="choice-button" type="button">Mentor</button></div></div>
+              <div class="field"><span class="label">Group / Contact</span><div class="input">Optional information</div></div>
+              <div class="bottom-actions"><a class="button" href="#signup-done">Complete Sign Up</a><a class="button secondary" href="#login">I already have an account</a></div>
+            </div>
+          </div>
+        </article>
+
+        <article class="phone-frame" id="login">
+          <div class="phone-top"><span>10:41</span><span class="speaker"></span><span>100%</span></div>
+          <div class="screen">
+            <div class="appbar"><div class="icon-btn">‹</div><div class="brand">Log In</div><div class="icon-btn">⌂</div></div>
+            <div class="content">
+              <div class="field"><span class="label">Email</span><div class="input">Enter email</div></div>
+              <div class="field"><span class="label">Password</span><div class="input">Enter password</div></div>
+              <a class="button" href="#mentee-dashboard">Log In</a>
+              <div class="grid-2"><a class="button secondary" href="#signup">Sign Up</a><a class="button secondary" href="#find-password">Find Password</a></div>
+            </div>
+          </div>
+        </article>
+
+        <article class="phone-frame" id="find-password">
+          <div class="phone-top"><span>10:41</span><span class="speaker"></span><span>100%</span></div>
+          <div class="screen">
+            <div class="appbar"><div class="icon-btn">‹</div><div class="brand">Find Password</div><div class="icon-btn">?</div></div>
+            <div class="content">
+              <div class="card filled"><strong>Reset Your Password</strong><p class="text">Enter your registered email to receive a password reset link.</p></div>
+              <div class="field"><span class="label">Email</span><div class="input">Enter registered email</div></div>
+              <div class="bottom-actions"><a class="button" href="#reset-link-sent">Send Reset Link</a><a class="button secondary" href="#login">Back to Log In</a></div>
+              <div class="card soft"><div class="label">After Sending</div><p class="text">The user checks email, opens the reset link, and creates a new password.</p></div>
+            </div>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section class="section" id="mentee">
+      <div class="section-head"><h2>Mentee Screens</h2><p class="section-note">Discipleship progress, weekly records, and testimony management</p></div>
+      <div class="board">
+        <article class="phone-frame" id="mentee-dashboard">
+          <div class="phone-top"><span>10:42</span><span class="speaker"></span><span>100%</span></div>
+          <div class="screen">
+            <div class="appbar"><div class="brand">Mentee Dashboard</div><div class="icon-btn">≡</div></div>
+            <div class="content">
+              <div class="card filled"><div class="row"><div><div class="label">Assigned Mentor</div><strong>Mentor Kim</strong></div><span class="pill">In Progress</span></div></div>
+              <div class="grid-2"><div class="metric"><span class="label">Current Week</span><h3>Week 4</h3></div><div class="metric"><span class="label">Records Done</span><h3>3/4</h3></div></div>
+              <div class="card"><div class="row"><strong>Discipleship Progress</strong><span class="status">75%</span></div><div class="progress"><span style="width:75%"></span></div></div>
+              <div class="list"><a class="list-item" href="#mentee-week"><strong>Weekly Record Details</strong><span class="status">Latest: Week 4 record needed</span></a><a class="list-item" href="#mentee-testimony"><strong>Testimony Management</strong><span class="status">Draft saved</span></a><a class="list-item"><strong>Mentee Discipleship History</strong><span class="status">View previous progress</span></a></div>
+            </div>
+            <div class="tabbar"><span class="active">Home</span><span>Records</span><span>Testimony</span><span>Profile</span></div>
+          </div>
+        </article>
+
+        <article class="phone-frame" id="mentee-week">
+          <div class="phone-top"><span>10:42</span><span class="speaker"></span><span>100%</span></div>
+          <div class="screen">
+            <div class="appbar"><div class="icon-btn">‹</div><div class="brand">Weekly Record Details</div><div class="icon-btn">≡</div></div>
+            <div class="content">
+              <div class="row"><span class="pill">Week 4</span><span class="pill">Record Needed</span></div>
+              <div class="card filled"><strong>This Week's Assignment</strong><p class="text">Review reflection, action items, and mentor discussion questions.</p></div>
+              <div class="timeline"><div class="list-item"><strong>Week 1</strong><span class="status ok">Records Done</span></div><div class="list-item"><strong>Week 2</strong><span class="status ok">Mentor Review Complete</span></div><div class="list-item"><strong>Week 3</strong><span class="status ok">Records Done</span></div><div class="list-item"><strong>Week 4</strong><span class="status warn">Needs Writing</span></div></div>
+              <div class="field"><span class="label">This Week's Sharing Notes</span><div class="textarea">Enter reflections and action steps.</div></div>
+              <div class="bottom-actions"><a class="button" href="#save-week">Write Record</a></div>
+            </div>
+          </div>
+        </article>
+
+        <article class="phone-frame" id="mentee-testimony">
+          <div class="phone-top"><span>10:42</span><span class="speaker"></span><span>100%</span></div>
+          <div class="screen">
+            <div class="appbar"><div class="icon-btn">‹</div><div class="brand">Testimony Management</div><div class="icon-btn">＋</div></div>
+            <div class="content">
+              <div class="field"><span class="label">Testimony Title</span><div class="input">My Growth and Gratitude</div></div>
+              <div class="field"><span class="label">Body</span><div class="textarea">Write the testimony content.</div></div>
+              <div class="grid-2"><a class="button secondary">View Testimony</a><a class="button secondary">Testimony Upload</a></div>
+              <div class="list"><div class="list-item"><strong>Recent Change</strong><span class="status">Draft saved today at 10:20</span></div></div>
+            </div>
+            <div class="tabbar"><span>Home</span><span>Records</span><span class="active">Testimony</span><span>Profile</span></div>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section class="section" id="mentor">
+      <div class="section-head"><h2>Mentor Screens</h2><p class="section-note">Assigned mentees, discipleship history, record writing, and resources</p></div>
+      <div class="board">
+        <article class="phone-frame">
+          <div class="phone-top"><span>10:42</span><span class="speaker"></span><span>100%</span></div>
+          <div class="screen">
+            <div class="appbar"><div class="brand">Mentor Dashboard</div><div class="icon-btn">≡</div></div>
+            <div class="content">
+              <div class="grid-2"><div class="metric"><span class="label">Assigned Mentees</span><h3>6</h3></div><div class="metric"><span class="label">Needs Review</span><h3>2</h3></div></div>
+              <div class="card"><div class="row"><strong>This Week's Progress</strong><span class="status">68%</span></div><div class="progress"><span style="width:68%"></span></div></div>
+              <div class="list"><a class="list-item"><strong>Assigned Mentee List</strong><span class="status">Review records and give feedback</span></a><a class="list-item"><strong>Mentee Discipleship History</strong><span class="status">Progress history by person</span></a><a class="list-item" href="#mentor-resource"><strong>Resources</strong><span class="status">Download Resource</span></a></div>
+              <div class="bottom-actions"><a class="button" href="#mentor-record">Enter Discipleship Session</a></div>
+            </div>
+            <div class="tabbar"><span class="active">Home</span><span>Mentee</span><span>Resources</span><span>Profile</span></div>
+          </div>
+        </article>
+
+        <article class="phone-frame" id="mentor-record">
+          <div class="phone-top"><span>10:42</span><span class="speaker"></span><span>100%</span></div>
+          <div class="screen">
+            <div class="appbar"><div class="icon-btn">‹</div><div class="brand">Write Weekly Record</div><div class="icon-btn">✓</div></div>
+            <div class="content">
+              <div class="card filled"><strong>16-Week Discipleship Course</strong><p class="text">Track date, QT, memorizing verse, and special notes for each week.</p></div>
+              <div class="week-table">
+                <div class="week-row head"><span>Week</span><span>Date</span><span>QT</span><span>Memorizing Verse</span><span>Special Notes</span></div>
+                <div class="week-row"><span>1</span><span>MM/DD</span><span class="check-box"></span><span class="check-box"></span><span>Notes</span></div>
+                <div class="week-row"><span>2</span><span>MM/DD</span><span class="check-box"></span><span class="check-box"></span><span>Notes</span></div>
+                <div class="week-row"><span>3</span><span>MM/DD</span><span class="check-box"></span><span class="check-box"></span><span>Notes</span></div>
+                <div class="week-row"><span>4</span><span>MM/DD</span><span class="check-box"></span><span class="check-box"></span><span>Notes</span></div>
+                <div class="week-row"><span>5</span><span>MM/DD</span><span class="check-box"></span><span class="check-box"></span><span>Notes</span></div>
+                <div class="week-row"><span>6</span><span>MM/DD</span><span class="check-box"></span><span class="check-box"></span><span>Notes</span></div>
+                <div class="week-row"><span>7</span><span>MM/DD</span><span class="check-box"></span><span class="check-box"></span><span>Notes</span></div>
+                <div class="week-row"><span>8</span><span>MM/DD</span><span class="check-box"></span><span class="check-box"></span><span>Notes</span></div>
+                <div class="week-row"><span>9</span><span>MM/DD</span><span class="check-box"></span><span class="check-box"></span><span>Notes</span></div>
+                <div class="week-row"><span>10</span><span>MM/DD</span><span class="check-box"></span><span class="check-box"></span><span>Notes</span></div>
+                <div class="week-row"><span>11</span><span>MM/DD</span><span class="check-box"></span><span class="check-box"></span><span>Notes</span></div>
+                <div class="week-row"><span>12</span><span>MM/DD</span><span class="check-box"></span><span class="check-box"></span><span>Notes</span></div>
+                <div class="week-row"><span>13</span><span>MM/DD</span><span class="check-box"></span><span class="check-box"></span><span>Notes</span></div>
+                <div class="week-row"><span>14</span><span>MM/DD</span><span class="check-box"></span><span class="check-box"></span><span>Notes</span></div>
+                <div class="week-row"><span>15</span><span>MM/DD</span><span class="check-box"></span><span class="check-box"></span><span>Notes</span></div>
+                <div class="week-row"><span>16</span><span>MM/DD</span><span class="check-box"></span><span class="check-box"></span><span>Notes</span></div>
+              </div>
+              <div class="bottom-actions"><a class="button" href="#save-mentor-record">Write Record</a></div>
+            </div>
+            <div class="tabbar"><span>Home</span><span class="active">Mentee</span><span>Resources</span><span>Profile</span></div>
+          </div>
+        </article>
+
+        <article class="phone-frame" id="mentor-resource">
+          <div class="phone-top"><span>10:42</span><span class="speaker"></span><span>100%</span></div>
+          <div class="screen">
+            <div class="appbar"><div class="icon-btn">‹</div><div class="brand">Resources</div><div class="icon-btn">⌕</div></div>
+            <div class="content">
+              <div class="field"><span class="label">Resources Search</span><div class="input">Search by resource title</div></div>
+              <div class="list"><div class="list-item"><strong>Week 1 Discipleship Guide</strong><span class="status">PDF / Latest version</span></div><div class="list-item"><strong>Mentor Guide</strong><span class="status">DOCX / Admin Upload</span></div><div class="list-item"><strong>Testimony Writing Guide</strong><span class="status">PDF / Shared resource</span></div></div>
+              <div class="bottom-actions"><a class="button" href="#download">Download Resource</a></div>
+            </div>
+            <div class="tabbar"><span>Home</span><span>Mentee</span><span class="active">Resources</span><span>Profile</span></div>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section class="section" id="profile">
+      <div class="section-head"><h2>Profile</h2><p class="section-note">Profile details and editing</p></div>
+      <div class="board"><article class="phone-frame"><div class="phone-top"><span>10:42</span><span class="speaker"></span><span>100%</span></div><div class="screen"><div class="appbar"><div class="brand">Profile</div><div class="icon-btn">⚙</div></div><div class="content"><div class="card filled"><strong>Alex Kim</strong><p class="text">Mentor / name@example.com</p></div><div class="list"><div class="list-item"><strong>Phone</strong><span class="status">010-0000-0000</span></div><div class="list-item"><strong>Group</strong><span class="status">Companion Community</span></div><div class="list-item"><strong>Role</strong><span class="status">Mentor</span></div></div><div class="bottom-actions"><a class="button">Edit Profile</a><a class="button secondary">Log Out</a></div></div><div class="tabbar"><span>Home</span><span>Records</span><span>Resources</span><span class="active">Profile</span></div></div></article></div>
+    </section>
+
+    <section class="section" id="admin">
+      <div class="section-head"><h2>Admin Screens</h2><p class="section-note">Manage members, roles, progress, resources, and reports</p></div>
+      <div class="board">
+        <article class="phone-frame"><div class="phone-top"><span>10:42</span><span class="speaker"></span><span>100%</span></div><div class="screen"><div class="appbar"><div class="brand">Admin Dashboard</div><div class="icon-btn">⌕</div></div><div class="content"><div class="grid-2"><div class="metric"><span class="label">Total Members</span><h3>128</h3></div><div class="metric"><span class="label">Active Programs</span><h3>34</h3></div></div><div class="list"><a class="list-item"><strong>Member Management</strong><span class="status">Edit member info / change role</span></a><a class="list-item"><strong>Discipleship Monitoring</strong><span class="status">View progress status</span></a><a class="list-item"><strong>Resource Management</strong><span class="status">Upload Resource</span></a><a class="list-item"><strong>Statistics and Reports</strong><span class="status">Download Report</span></a></div></div><div class="tabbar"><span class="active">Home</span><span>Members</span><span>Resources</span><span>Reports</span></div></div></article>
+        <article class="phone-frame"><div class="phone-top"><span>10:42</span><span class="speaker"></span><span>100%</span></div><div class="screen"><div class="appbar"><div class="icon-btn">‹</div><div class="brand">Member Management</div><div class="icon-btn">⌕</div></div><div class="content"><div class="field"><span class="label">Member Search</span><div class="input">Search name, email, or role</div></div><div class="table"><div class="table-row head"><span>Name</span><span>Role</span><span>Status</span></div><div class="table-row"><span>Mentor Kim</span><span>Mentor</span><span>Active</span></div><div class="table-row"><span>Mentee Lee</span><span>Mentee</span><span>In Progress</span></div><div class="table-row"><span>New Member</span><span>Pending</span><span>Approve</span></div></div><div class="grid-2"><a class="button secondary">Edit Member Info</a><a class="button secondary">Change Role</a></div><div class="bottom-actions"><a class="button">Approve Selected Member</a></div></div><div class="tabbar"><span>Home</span><span class="active">Members</span><span>Resources</span><span>Reports</span></div></div></article>
+      </div>
+    </section>
+  </main>
+</body>
+</html>
