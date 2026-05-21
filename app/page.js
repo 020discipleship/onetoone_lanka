@@ -598,6 +598,36 @@ function MenteeTabBar({ active = "dashboard" }) {
 }
 
 function Phone({ children, id }) {
+  const router = useRouter();
+
+  useEffect(() => {
+    const publicPaths = new Set(["/", "/about", "/login", "/signup", "/find-password"]);
+
+    function clearSession() {
+      window.localStorage.removeItem(STORAGE_KEYS.currentUser);
+      if (auth) signOut(auth).catch(() => {});
+    }
+
+    function redirectIfSignedOut() {
+      const isPublicPath = publicPaths.has(window.location.pathname);
+      const currentUser = readJson(STORAGE_KEYS.currentUser, null);
+      if (!isPublicPath && !currentUser) router.replace("/login");
+    }
+
+    function handleVisibilityChange() {
+      if (document.visibilityState === "hidden") clearSession();
+      if (document.visibilityState === "visible") redirectIfSignedOut();
+    }
+
+    window.addEventListener("pagehide", clearSession);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener("pagehide", clearSession);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [router]);
+
   return (
     <article className="phone" id={id}>
       <div className="screen">{children}</div>
