@@ -831,6 +831,12 @@ h1 {
   color: var(--ink);
 }
 
+.buttonDanger {
+  border-color: #c9a8a8;
+  background: #fff7f7;
+  color: #8a2f2f;
+}
+
 .choiceButton.selected {
   border-color: var(--accent);
   background: var(--accent);
