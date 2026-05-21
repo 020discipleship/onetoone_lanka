@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="One to One Discipleship">
+  <rect width="512" height="512" rx="122" fill="#153d2d"/>
+  <circle cx="256" cy="256" r="190" fill="#f7fbf6" opacity=".07"/>
+  <text x="256" y="232" fill="#f7fbf6" font-family="Arial, Helvetica, sans-serif" font-size="82" font-weight="900" text-anchor="middle" letter-spacing="-1">One</text>
+  <text x="256" y="308" fill="#f7fbf6" font-family="Arial, Helvetica, sans-serif" font-size="54" font-weight="900" text-anchor="middle" letter-spacing="2">to</text>
+  <text x="256" y="386" fill="#f7fbf6" font-family="Arial, Helvetica, sans-serif" font-size="82" font-weight="900" text-anchor="middle" letter-spacing="-1">One</text>
+</svg>
