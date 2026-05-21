@@ -602,8 +602,10 @@ function Phone({ children, id }) {
 
   useEffect(() => {
     const publicPaths = new Set(["/", "/about", "/login", "/signup", "/find-password"]);
+    const sessionPaths = new Set(["/login", "/signup", "/find-password"]);
 
     function clearSession() {
+      if (sessionPaths.has(window.location.pathname)) return;
       window.localStorage.removeItem(STORAGE_KEYS.currentUser);
       if (auth) signOut(auth).catch(() => {});
     }
