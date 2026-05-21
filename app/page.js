@@ -1645,10 +1645,22 @@ export function ProfileScreen() {
 
 export function AdminDashboard() {
   const [users, setUsers] = useState([]);
+  const [message, setMessage] = useState("");
 
   useEffect(() => {
-    ensureTestUsers();
-    setUsers(readJson(STORAGE_KEYS.users, []));
+    async function loadUsers() {
+      try {
+        const nextUsers = await readFirestoreUsers();
+        const usersWithAdmin = nextUsers.length ? nextUsers : TEST_USERS;
+        writeJson(STORAGE_KEYS.users, usersWithAdmin);
+        setUsers(usersWithAdmin);
+      } catch {
+        ensureTestUsers();
+        setUsers(readJson(STORAGE_KEYS.users, []));
+        setMessage("Dashboard is showing saved browser data. Firestore could not be reached.");
+      }
+    }
+    loadUsers();
   }, []);
 
   const totalMembers = users.length;
@@ -1665,6 +1677,7 @@ export function AdminDashboard() {
           <a className="listItem" href="/admin/monitoring"><strong>Disciple Monitoring</strong><span className="status">Track active and completed discipleship</span></a>
           <a className="listItem" href="/admin/reports"><strong>Statics and Reports</strong><span className="status">Review progress charts and reports</span></a>
         </div>
+        {message ? <p className="message">{message}</p> : null}
       </div>
       <AdminTabBar active="dashboard" />
     </Phone>
@@ -1675,8 +1688,18 @@ export function AdminReports() {
   const [users, setUsers] = useState([]);
 
   useEffect(() => {
-    ensureTestUsers();
-    setUsers(readJson(STORAGE_KEYS.users, []));
+    async function loadUsers() {
+      try {
+        const nextUsers = await readFirestoreUsers();
+        const usersWithAdmin = nextUsers.length ? nextUsers : TEST_USERS;
+        writeJson(STORAGE_KEYS.users, usersWithAdmin);
+        setUsers(usersWithAdmin);
+      } catch {
+        ensureTestUsers();
+        setUsers(readJson(STORAGE_KEYS.users, []));
+      }
+    }
+    loadUsers();
   }, []);
 
   const roleStats = [
