@@ -611,7 +611,7 @@ function Phone({ children, id }) {
     function redirectIfSignedOut() {
       const isPublicPath = publicPaths.has(window.location.pathname);
       const currentUser = readJson(STORAGE_KEYS.currentUser, null);
-      if (!isPublicPath && !currentUser) router.replace("/login");
+      if (!isPublicPath && !currentUser) router.replace("/");
     }
 
     function handleVisibilityChange() {
