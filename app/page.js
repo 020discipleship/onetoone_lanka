@@ -619,11 +619,14 @@ function Phone({ children, id }) {
       if (document.visibilityState === "visible") redirectIfSignedOut();
     }
 
+    redirectIfSignedOut();
     window.addEventListener("pagehide", clearSession);
+    window.addEventListener("pageshow", redirectIfSignedOut);
     document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
       window.removeEventListener("pagehide", clearSession);
+      window.removeEventListener("pageshow", redirectIfSignedOut);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, [router]);
