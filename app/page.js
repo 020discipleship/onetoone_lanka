@@ -193,6 +193,10 @@ async function ensureAdminFirestoreUser(firebaseUser) {
 
 function getAuthMessage(error, fallback) {
   const code = error?.code || "";
+  if (code.includes("invalid-api-key")) return "Firebase API key is invalid or missing in Vercel Environment Variables.";
+  if (code.includes("unauthorized-domain")) return "This domain is not authorized in Firebase Authentication settings.";
+  if (code.includes("operation-not-allowed")) return "Email/password login is not enabled in Firebase Authentication.";
+  if (code.includes("network-request-failed")) return "Network connection failed. Please check your internet connection.";
   if (code.includes("email-already-in-use")) return "This email is already registered. Please log in or use another email.";
   if (code.includes("invalid-credential") || code.includes("wrong-password")) return "Email or password is not correct.";
   if (code.includes("user-not-found")) return "No matching account found. Try signing up first.";
@@ -942,7 +946,12 @@ export function LoginScreen() {
       writeJson(STORAGE_KEYS.currentUser, user);
       router.push(rolePath(user.role));
     } catch (error) {
-      if (error?.code === "auth/user-not-found" && normalizeEmail(email) === ADMIN_EMAIL && password === "onetoonelanka") {
+      const shouldPrepareAdmin =
+        ["auth/user-not-found", "auth/invalid-credential"].includes(error?.code) &&
+        normalizeEmail(email) === ADMIN_EMAIL &&
+        password === "onetoonelanka";
+
+      if (shouldPrepareAdmin) {
         try {
           const credential = await createUserWithEmailAndPassword(auth, ADMIN_EMAIL, password);
           const adminUser = await ensureAdminFirestoreUser(credential.user);
