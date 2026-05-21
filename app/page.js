@@ -1997,6 +1997,31 @@ export function AdminMembers() {
     }
   }
 
+  async function deleteSelectedMember() {
+    if (!selectedUser) {
+      setMessage("Select a member first.");
+      return;
+    }
+    if (selectedUser.email === ADMIN_EMAIL) {
+      setMessage("The primary Admin account cannot be deleted here.");
+      return;
+    }
+    const confirmed = window.confirm(`Delete ${selectedUser.name}? This removes the member from Member Management.`);
+    if (!confirmed) return;
+
+    try {
+      if (isFirebaseConfigured) {
+        await deleteDoc(doc(db, "users", selectedUser.id));
+      }
+      const nextUsers = users.filter((user) => user.id !== selectedUser.id);
+      saveUsers(nextUsers, `${selectedUser.name} deleted.`);
+      setSelectedUserId(nextUsers[0]?.id || "");
+      setSelectedMentorName(nextUsers.find((user) => user.role === "Mentor")?.name || "");
+    } catch {
+      setMessage("Member could not be deleted from Firestore. Please try again.");
+    }
+  }
+
   function assignMentor() {
     if (!selectedUser) {
       setMessage("Select a member first.");
@@ -2077,6 +2102,7 @@ export function AdminMembers() {
           </div>
         ) : null}
         <div className="grid2"><button className="button buttonSecondary" type="button" onClick={openSelectedMemberInfo}>View Member Info</button><button className="button buttonSecondary" type="button" onClick={changeSelectedRole}>Change Role</button></div>
+        <button className="button buttonDanger" type="button" onClick={deleteSelectedMember}>Delete Member</button>
         <div className="bottomActions"><button className="button" type="button" onClick={approveSelected}>Approve Pending Member</button></div>
       </div>
       <AdminTabBar active="dashboard" />
