@@ -1608,14 +1608,65 @@ export function ResourceFileScreen() {
 export function ProfileScreen() {
   const router = useRouter();
   const [user, setUser] = useState(null);
+  const [form, setForm] = useState({ name: "", birthDate: "", phone: "", contact: "" });
+  const [isEditing, setIsEditing] = useState(false);
   const [message, setMessage] = useState("");
 
   useEffect(() => {
     const currentUser = readJson(STORAGE_KEYS.currentUser, null);
     const users = readJson(STORAGE_KEYS.users, []);
     const freshUser = users.find((candidate) => candidate.id === currentUser?.id || candidate.email === currentUser?.email);
-    setUser(freshUser || currentUser);
+    const nextUser = freshUser || currentUser;
+    setUser(nextUser);
+    setForm({
+      name: nextUser?.name || "",
+      birthDate: nextUser?.birthDate || "",
+      phone: nextUser?.phone || "",
+      contact: nextUser?.contact || nextUser?.church || ""
+    });
   }, []);
+
+  function updateProfileField(field, value) {
+    setForm((current) => ({ ...current, [field]: value }));
+  }
+
+  async function saveProfile() {
+    if (!user) {
+      setMessage("Please log in first.");
+      return;
+    }
+
+    const nextUser = {
+      ...user,
+      name: form.name,
+      birthDate: form.birthDate,
+      phone: form.phone,
+      contact: form.contact,
+      church: form.contact,
+      updatedAt: new Date().toISOString()
+    };
+
+    try {
+      if (isFirebaseConfigured) {
+        await updateDoc(doc(db, "users", user.id), {
+          name: nextUser.name,
+          birthDate: nextUser.birthDate,
+          phone: nextUser.phone,
+          contact: nextUser.contact,
+          church: nextUser.church,
+          updatedAt: nextUser.updatedAt
+        });
+      }
+      const users = readJson(STORAGE_KEYS.users, []);
+      writeJson(STORAGE_KEYS.users, users.map((candidate) => candidate.id === user.id ? nextUser : candidate));
+      writeJson(STORAGE_KEYS.currentUser, nextUser);
+      setUser(nextUser);
+      setIsEditing(false);
+      setMessage("Profile updated.");
+    } catch {
+      setMessage("Profile could not be saved. Please try again.");
+    }
+  }
 
   function logOut() {
     window.localStorage.removeItem(STORAGE_KEYS.currentUser);
@@ -1634,9 +1685,32 @@ export function ProfileScreen() {
       <AppBar title="Profile" right={<IconButton href="/">⌂</IconButton>} />
       <div className="content">
         <div className="card cardFilled"><strong>{user?.name || "Guest User"}</strong><p className="text">{user?.role || "No Role"} / {user?.email || "not logged in"}</p></div>
-        <div className="list"><div className="listItem"><strong>Birth Date</strong><span className="status">{user?.birthDate || "-"}</span></div><div className="listItem"><strong>Phone</strong><span className="status">{user?.phone || "-"}</span></div><div className="listItem"><strong>Email</strong><span className="status">{user?.email || "-"}</span></div><div className="listItem"><strong>Community</strong><span className="status">{user?.contact || user?.church || "Companion Community"}</span></div><div className="listItem"><strong>Role</strong><span className="status">{user?.role || "Guest"}</span></div></div>
+        {isEditing ? (
+          <div className="list">
+            <Field label="Name"><input className="input" value={form.name} onChange={(event) => updateProfileField("name", event.target.value)} /></Field>
+            <Field label="Birth Date"><BirthDatePicker value={form.birthDate} onChange={(value) => updateProfileField("birthDate", value)} /></Field>
+            <Field label="Phone"><input className="input" value={form.phone} onChange={(event) => updateProfileField("phone", event.target.value)} type="tel" /></Field>
+            <Field label="Community"><input className="input" value={form.contact} onChange={(event) => updateProfileField("contact", event.target.value)} /></Field>
+            <div className="listItem"><strong>Email</strong><span className="status">{user?.email || "-"}</span></div>
+            <div className="listItem"><strong>Role</strong><span className="status">{user?.role || "Guest"}</span></div>
+          </div>
+        ) : (
+          <div className="list"><div className="listItem"><strong>Birth Date</strong><span className="status">{user?.birthDate || "-"}</span></div><div className="listItem"><strong>Phone</strong><span className="status">{user?.phone || "-"}</span></div><div className="listItem"><strong>Email</strong><span className="status">{user?.email || "-"}</span></div><div className="listItem"><strong>Community</strong><span className="status">{user?.contact || user?.church || "Companion Community"}</span></div><div className="listItem"><strong>Role</strong><span className="status">{user?.role || "Guest"}</span></div></div>
+        )}
         {message ? <p className="message">{message}</p> : null}
-        <div className="bottomActions"><button className="button" type="button" onClick={() => setMessage("Profile edit mode will be connected to Supabase next.")}>Edit Profile</button><button className="button buttonSecondary" type="button" onClick={logOut}>Log Out</button></div>
+        <div className="bottomActions">
+          {isEditing ? (
+            <>
+              <button className="button" type="button" onClick={saveProfile}>Save Profile</button>
+              <button className="button buttonSecondary" type="button" onClick={() => setIsEditing(false)}>Cancel</button>
+            </>
+          ) : (
+            <>
+              <button className="button" type="button" onClick={() => setIsEditing(true)}>Edit Profile</button>
+              <button className="button buttonSecondary" type="button" onClick={logOut}>Log Out</button>
+            </>
+          )}
+        </div>
       </div>
       {!isAdminProfile && !isMentorProfile ? <MenteeTabBar active="profile" /> : isAdminProfile ? <AdminTabBar active="dashboard" /> : <MentorTabBar active="profile" />}
     </Phone>
