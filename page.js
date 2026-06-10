@@ -129,7 +129,7 @@ function writeAssignedProgram(mentee, mentorName) {
 }
 
 function getMemberProfile(name) {
-  return TEST_USERS.find((user) => user.name === name);
+  return readJson(STORAGE_KEYS.users, []).find((user) => user.name === name) || TEST_USERS.find((user) => user.name === name);
 }
 
 function readJson(key, fallback) {
@@ -193,6 +193,10 @@ async function ensureAdminFirestoreUser(firebaseUser) {
 
 function getAuthMessage(error, fallback) {
   const code = error?.code || "";
+  if (code.includes("invalid-api-key")) return "Firebase API key is invalid or missing in Vercel Environment Variables.";
+  if (code.includes("unauthorized-domain")) return "This domain is not authorized in Firebase Authentication settings.";
+  if (code.includes("operation-not-allowed")) return "Email/password login is not enabled in Firebase Authentication.";
+  if (code.includes("network-request-failed")) return "Network connection failed. Please check your internet connection.";
   if (code.includes("email-already-in-use")) return "This email is already registered. Please log in or use another email.";
   if (code.includes("invalid-credential") || code.includes("wrong-password")) return "Email or password is not correct.";
   if (code.includes("user-not-found")) return "No matching account found. Try signing up first.";
@@ -440,7 +444,7 @@ function parseDisplayDate(value) {
 function DatePickerCell({ record, canEditRecords, onChange }) {
   const [open, setOpen] = useState(false);
   const selected = parseDisplayDate(record.date);
-  const years = ["2026", "2027", "2028", "2029", "2030"];
+  const years = Array.from({ length: 9 }, (_, index) => String(2022 + index));
   const months = [
     ["01", "Jan"],
     ["02", "Feb"],
@@ -598,6 +602,25 @@ function MenteeTabBar({ active = "dashboard" }) {
 }
 
 function Phone({ children, id }) {
+  const router = useRouter();
+
+  useEffect(() => {
+    const publicPaths = new Set(["/", "/about", "/login", "/signup", "/find-password"]);
+
+    function redirectIfSignedOut() {
+      const isPublicPath = publicPaths.has(window.location.pathname);
+      const currentUser = readJson(STORAGE_KEYS.currentUser, null);
+      if (!isPublicPath && !currentUser) router.replace("/");
+    }
+
+    redirectIfSignedOut();
+    window.addEventListener("pageshow", redirectIfSignedOut);
+
+    return () => {
+      window.removeEventListener("pageshow", redirectIfSignedOut);
+    };
+  }, [router]);
+
   return (
     <article className="phone" id={id}>
       <div className="screen">{children}</div>
@@ -665,6 +688,7 @@ export function HomeScreen() {
 
   function logOut() {
     window.localStorage.removeItem(STORAGE_KEYS.currentUser);
+    if (auth) signOut(auth).catch(() => {});
     setUser(null);
   }
 
@@ -907,7 +931,12 @@ export function LoginScreen() {
       writeJson(STORAGE_KEYS.currentUser, user);
       router.push(rolePath(user.role));
     } catch (error) {
-      if (error?.code === "auth/user-not-found" && normalizeEmail(email) === ADMIN_EMAIL && password === "onetoonelanka") {
+      const shouldPrepareAdmin =
+        ["auth/user-not-found", "auth/invalid-credential"].includes(error?.code) &&
+        normalizeEmail(email) === ADMIN_EMAIL &&
+        password === "onetoonelanka";
+
+      if (shouldPrepareAdmin) {
         try {
           const credential = await createUserWithEmailAndPassword(auth, ADMIN_EMAIL, password);
           const adminUser = await ensureAdminFirestoreUser(credential.user);
@@ -975,11 +1004,29 @@ export function MenteeDashboard() {
   const [records, setRecords] = useState(() => createEmptyRecords());
 
   useEffect(() => {
-    const currentUser = readJson(STORAGE_KEYS.currentUser, null);
-    const currentProgram = findMenteeProgram(currentUser);
-    setUser(currentUser);
-    setProgram(currentProgram);
-    setRecords(readProgramRecords(currentProgram));
+    async function loadDashboard() {
+      const currentUser = readJson(STORAGE_KEYS.currentUser, null);
+      let users = readJson(STORAGE_KEYS.users, []);
+
+      try {
+        const firestoreUsers = await readFirestoreUsers();
+        if (firestoreUsers.length) {
+          users = firestoreUsers;
+          writeJson(STORAGE_KEYS.users, firestoreUsers);
+        }
+      } catch {
+        // Use saved browser data when Firestore is unavailable.
+      }
+
+      const freshUser = users.find((candidate) => candidate.id === currentUser?.id || candidate.email === currentUser?.email);
+      const nextUser = freshUser || currentUser;
+      const currentProgram = findMenteeProgram(nextUser);
+      setUser(nextUser);
+      setProgram(currentProgram);
+      setRecords(readProgramRecords(currentProgram));
+    }
+
+    loadDashboard();
   }, []);
 
   const currentWeekNumber = getCompletedRecordWeek(records);
@@ -995,7 +1042,14 @@ export function MenteeDashboard() {
         <div className="card cardFilled"><div className="row"><div><div className="label">Welcome</div><strong>{user?.name || program.name}</strong><p className="text">Assigned Mentor: {program.mentor}</p></div><span className="pill">{displayStatus}</span></div></div>
         <div className="grid2"><div className="metric"><span className="label">Current Week</span><h3>{currentWeek}</h3></div><div className="metric"><span className="label">Records Done</span><h3>{recordsDone}/16</h3></div></div>
         <div className="card"><div className="row"><strong>Discipleship Progress</strong><span className="status">{progressValue}%</span></div><div className="progress"><span style={{ width: `${progressValue}%` }} /></div></div>
-        <div className="list"><a className="listItem" href="/mentee/records"><strong>Weekly Record Details</strong><span className="status">Latest: {currentWeek}</span></a><a className="listItem" href="/mentee/testimony"><strong>Testimony</strong><span className="status">Write and upload testimony</span></a></div>
+        <div className="list"><a className="listItem" href="/mentee/records"><strong>Weekly Record Details</strong><span className="status">Latest: {currentWeek}</span></a></div>
+        <div className="card">
+          <strong>Mentor Training Course</strong>
+          <p className="text">Training Leader: {user?.mentorTrainingLeader || "-"}</p>
+          <p className="text">Start Date: {user?.mentorTrainingStartDate || "-"}</p>
+          <p className="text">Completion Date: {user?.mentorTrainingCompletionDate || "-"}</p>
+        </div>
+        <div className="list"><a className="listItem" href="/mentee/testimony"><strong>Testimony</strong><span className="status">Write and upload testimony</span></a></div>
       </div>
       <MenteeTabBar active="dashboard" />
     </Phone>
@@ -1297,6 +1351,7 @@ export function MentorRecordScreen() {
   const [testimony, setTestimony] = useState(null);
   const [selectedProgram, setSelectedProgram] = useState(DEFAULT_PROGRAM);
   const [programSource, setProgramSource] = useState("");
+  const [trainingRecord, setTrainingRecord] = useState({ startDate: "", completionDate: "", leader: "" });
 
   useEffect(() => {
     const currentUser = readJson(STORAGE_KEYS.currentUser, null);
@@ -1310,6 +1365,12 @@ export function MentorRecordScreen() {
     setProgramSource(readJson(STORAGE_KEYS.selectedProgramSource, ""));
     setRecords(readProgramRecords(nextSelectedProgram));
     setTestimony(readMenteeTestimony(nextSelectedProgram.name));
+    const menteeProfile = getMemberProfile(nextSelectedProgram.name);
+    setTrainingRecord({
+      startDate: menteeProfile?.mentorTrainingStartDate || "",
+      completionDate: menteeProfile?.mentorTrainingCompletionDate || "",
+      leader: menteeProfile?.mentorTrainingLeader || ""
+    });
   }, []);
 
   const isAdminView = user?.role === "Admin" || programSource.startsWith("admin");
@@ -1327,11 +1388,43 @@ export function MentorRecordScreen() {
     setMessage("");
   }
 
-  function saveRecords() {
+  function updateTrainingRecord(field, value) {
     if (!canEditRecords) return;
-    writeProgramRecords(programDetails, records);
-    setSelectedProgram(findProgram({ ...programDetails, week: getProgramWeekLabel(programDetails) }));
-    setMessage("Record saved. Mentee and Admin can now view these updates.");
+    setTrainingRecord((current) => ({ ...current, [field]: value }));
+    setMessage("");
+  }
+
+  async function saveRecords() {
+    if (!canEditRecords) return;
+    try {
+      writeProgramRecords(programDetails, records);
+      setSelectedProgram(findProgram({ ...programDetails, week: getProgramWeekLabel(programDetails) }));
+      let users = readJson(STORAGE_KEYS.users, []);
+      if (isFirebaseConfigured) {
+        const firestoreUsers = await readFirestoreUsers();
+        if (firestoreUsers.length) users = firestoreUsers;
+      }
+      const mentee = users.find((candidate) => candidate.name === programDetails.name);
+      if (mentee) {
+        const nextMentee = {
+          ...mentee,
+          mentorTrainingStartDate: trainingRecord.startDate,
+          mentorTrainingCompletionDate: trainingRecord.completionDate,
+          mentorTrainingLeader: trainingRecord.leader
+        };
+        writeJson(STORAGE_KEYS.users, users.map((candidate) => candidate.id === mentee.id ? nextMentee : candidate));
+        if (isFirebaseConfigured && nextMentee.id) {
+          await updateDoc(doc(db, "users", nextMentee.id), {
+            mentorTrainingStartDate: nextMentee.mentorTrainingStartDate,
+            mentorTrainingCompletionDate: nextMentee.mentorTrainingCompletionDate,
+            mentorTrainingLeader: nextMentee.mentorTrainingLeader
+          });
+        }
+      }
+      setMessage("Record saved. Mentee and Admin can now view these updates.");
+    } catch {
+      setMessage("Record could not be saved. Please try again.");
+    }
   }
 
   const title = isAdminView ? selectedProgram.status : "Weekly Record";
@@ -1364,6 +1457,35 @@ export function MentorRecordScreen() {
               <span>{canEditRecords ? <input className="tableInput" value={record.notes} onChange={(event) => updateRecord(record.week, "notes", event.target.value)} placeholder="Notes" /> : <span className="readonlyText">{record.notes || "Notes"}</span>}</span>
             </div>
           ))}
+        </div>
+        <div className="card cardFilled">
+          <strong>Mentor Training Course</strong>
+          <p className="text">Record only who led the training, when it began, and when it was completed.</p>
+        </div>
+        <div className="trainingRecordGrid">
+          <Field label="Training Leader">
+            {canEditRecords ? (
+              <input className="input" value={trainingRecord.leader} onChange={(event) => updateTrainingRecord("leader", event.target.value)} placeholder="Name of training leader" />
+            ) : (
+              <span className="readonlyText">{trainingRecord.leader || "-"}</span>
+            )}
+          </Field>
+          <div className="trainingDateRow">
+            <Field label="Start Date">
+              <DatePickerCell
+                record={{ week: "mentor-training-start", date: trainingRecord.startDate }}
+                canEditRecords={canEditRecords}
+                onChange={(value) => updateTrainingRecord("startDate", value)}
+              />
+            </Field>
+            <Field label="Completion Date">
+              <DatePickerCell
+                record={{ week: "mentor-training-completion", date: trainingRecord.completionDate }}
+                canEditRecords={canEditRecords}
+                onChange={(value) => updateTrainingRecord("completionDate", value)}
+              />
+            </Field>
+          </div>
         </div>
         {canEditRecords ? <div className="bottomActions"><button className="button" type="button" onClick={saveRecords}>Save Record</button></div> : null}
         {isAdminView ? (
@@ -1608,14 +1730,65 @@ export function ResourceFileScreen() {
 export function ProfileScreen() {
   const router = useRouter();
   const [user, setUser] = useState(null);
+  const [form, setForm] = useState({ name: "", birthDate: "", phone: "", contact: "" });
+  const [isEditing, setIsEditing] = useState(false);
   const [message, setMessage] = useState("");
 
   useEffect(() => {
     const currentUser = readJson(STORAGE_KEYS.currentUser, null);
     const users = readJson(STORAGE_KEYS.users, []);
     const freshUser = users.find((candidate) => candidate.id === currentUser?.id || candidate.email === currentUser?.email);
-    setUser(freshUser || currentUser);
+    const nextUser = freshUser || currentUser;
+    setUser(nextUser);
+    setForm({
+      name: nextUser?.name || "",
+      birthDate: nextUser?.birthDate || "",
+      phone: nextUser?.phone || "",
+      contact: nextUser?.contact || nextUser?.church || ""
+    });
   }, []);
+
+  function updateProfileField(field, value) {
+    setForm((current) => ({ ...current, [field]: value }));
+  }
+
+  async function saveProfile() {
+    if (!user) {
+      setMessage("Please log in first.");
+      return;
+    }
+
+    const nextUser = {
+      ...user,
+      name: form.name,
+      birthDate: form.birthDate,
+      phone: form.phone,
+      contact: form.contact,
+      church: form.contact,
+      updatedAt: new Date().toISOString()
+    };
+
+    try {
+      if (isFirebaseConfigured) {
+        await updateDoc(doc(db, "users", user.id), {
+          name: nextUser.name,
+          birthDate: nextUser.birthDate,
+          phone: nextUser.phone,
+          contact: nextUser.contact,
+          church: nextUser.church,
+          updatedAt: nextUser.updatedAt
+        });
+      }
+      const users = readJson(STORAGE_KEYS.users, []);
+      writeJson(STORAGE_KEYS.users, users.map((candidate) => candidate.id === user.id ? nextUser : candidate));
+      writeJson(STORAGE_KEYS.currentUser, nextUser);
+      setUser(nextUser);
+      setIsEditing(false);
+      setMessage("Profile updated.");
+    } catch {
+      setMessage("Profile could not be saved. Please try again.");
+    }
+  }
 
   function logOut() {
     window.localStorage.removeItem(STORAGE_KEYS.currentUser);
@@ -1634,9 +1807,32 @@ export function ProfileScreen() {
       <AppBar title="Profile" right={<IconButton href="/">⌂</IconButton>} />
       <div className="content">
         <div className="card cardFilled"><strong>{user?.name || "Guest User"}</strong><p className="text">{user?.role || "No Role"} / {user?.email || "not logged in"}</p></div>
-        <div className="list"><div className="listItem"><strong>Birth Date</strong><span className="status">{user?.birthDate || "-"}</span></div><div className="listItem"><strong>Phone</strong><span className="status">{user?.phone || "-"}</span></div><div className="listItem"><strong>Email</strong><span className="status">{user?.email || "-"}</span></div><div className="listItem"><strong>Community</strong><span className="status">{user?.contact || user?.church || "Companion Community"}</span></div><div className="listItem"><strong>Role</strong><span className="status">{user?.role || "Guest"}</span></div></div>
+        {isEditing ? (
+          <div className="list">
+            <Field label="Name"><input className="input" value={form.name} onChange={(event) => updateProfileField("name", event.target.value)} /></Field>
+            <Field label="Birth Date"><BirthDatePicker value={form.birthDate} onChange={(value) => updateProfileField("birthDate", value)} /></Field>
+            <Field label="Phone"><input className="input" value={form.phone} onChange={(event) => updateProfileField("phone", event.target.value)} type="tel" /></Field>
+            <Field label="Community"><input className="input" value={form.contact} onChange={(event) => updateProfileField("contact", event.target.value)} /></Field>
+            <div className="listItem"><strong>Email</strong><span className="status">{user?.email || "-"}</span></div>
+            <div className="listItem"><strong>Role</strong><span className="status">{user?.role || "Guest"}</span></div>
+          </div>
+        ) : (
+          <div className="list"><div className="listItem"><strong>Birth Date</strong><span className="status">{user?.birthDate || "-"}</span></div><div className="listItem"><strong>Phone</strong><span className="status">{user?.phone || "-"}</span></div><div className="listItem"><strong>Email</strong><span className="status">{user?.email || "-"}</span></div><div className="listItem"><strong>Community</strong><span className="status">{user?.contact || user?.church || "Companion Community"}</span></div><div className="listItem"><strong>Role</strong><span className="status">{user?.role || "Guest"}</span></div></div>
+        )}
         {message ? <p className="message">{message}</p> : null}
-        <div className="bottomActions"><button className="button" type="button" onClick={() => setMessage("Profile edit mode will be connected to Supabase next.")}>Edit Profile</button><button className="button buttonSecondary" type="button" onClick={logOut}>Log Out</button></div>
+        <div className="bottomActions">
+          {isEditing ? (
+            <>
+              <button className="button" type="button" onClick={saveProfile}>Save Profile</button>
+              <button className="button buttonSecondary" type="button" onClick={() => setIsEditing(false)}>Cancel</button>
+            </>
+          ) : (
+            <>
+              <button className="button" type="button" onClick={() => setIsEditing(true)}>Edit Profile</button>
+              <button className="button buttonSecondary" type="button" onClick={logOut}>Log Out</button>
+            </>
+          )}
+        </div>
       </div>
       {!isAdminProfile && !isMentorProfile ? <MenteeTabBar active="profile" /> : isAdminProfile ? <AdminTabBar active="dashboard" /> : <MentorTabBar active="profile" />}
     </Phone>
@@ -1837,6 +2033,23 @@ export function AdminQna() {
 
 export function AdminMonitoring() {
   const [inProgressPage, setInProgressPage] = useState(1);
+  const [users, setUsers] = useState(() => readJson(STORAGE_KEYS.users, []));
+
+  useEffect(() => {
+    async function loadUsers() {
+      try {
+        const nextUsers = await readFirestoreUsers();
+        const usersWithAdmin = nextUsers.length ? nextUsers : readJson(STORAGE_KEYS.users, []);
+        writeJson(STORAGE_KEYS.users, usersWithAdmin);
+        setUsers(usersWithAdmin);
+      } catch {
+        setUsers(readJson(STORAGE_KEYS.users, []));
+      }
+    }
+
+    loadUsers();
+  }, []);
+
   const allPrograms = getAllPrograms();
   const inProgressPrograms = allPrograms.filter((program) => program.status !== "Completed");
   const completedPrograms = allPrograms.filter((program) => program.status === "Completed");
@@ -1859,12 +2072,17 @@ export function AdminMonitoring() {
         <div className="list">
           {pagedInProgressPrograms.map((program) => {
             const displayWeek = getProgramWeekLabel(program);
+            const menteeProfile = users.find((candidate) => candidate.name === program.name) || getMemberProfile(program.name);
+            const trainingMessage = menteeProfile?.mentorTrainingCompletionDate
+              ? `Mentor training completed: ${menteeProfile.mentorTrainingCompletionDate}`
+              : "Mentor training not completed";
             return (
             <a className="listItem" href="/mentor/records" key={program.name} onClick={() => selectProgram({ ...program, week: displayWeek }, "admin")}>
               <div className="row"><strong>{program.name}</strong><span className="pill">In Progress</span></div>
               <span className="status">{program.mentor} / {displayWeek}</span>
+              <span className={`status trainingStatus ${menteeProfile?.mentorTrainingCompletionDate ? "ok" : "warn"}`}>{trainingMessage}</span>
             </a>
-            );
+          );
           })}
         </div>
         {inProgressPageCount > 1 ? (
@@ -1997,6 +2215,31 @@ export function AdminMembers() {
     }
   }
 
+  async function deleteSelectedMember() {
+    if (!selectedUser) {
+      setMessage("Select a member first.");
+      return;
+    }
+    if (selectedUser.email === ADMIN_EMAIL) {
+      setMessage("The primary Admin account cannot be deleted here.");
+      return;
+    }
+    const confirmed = window.confirm(`Delete ${selectedUser.name}? This removes the member from Member Management.`);
+    if (!confirmed) return;
+
+    try {
+      if (isFirebaseConfigured) {
+        await deleteDoc(doc(db, "users", selectedUser.id));
+      }
+      const nextUsers = users.filter((user) => user.id !== selectedUser.id);
+      saveUsers(nextUsers, `${selectedUser.name} deleted.`);
+      setSelectedUserId(nextUsers[0]?.id || "");
+      setSelectedMentorName(nextUsers.find((user) => user.role === "Mentor")?.name || "");
+    } catch {
+      setMessage("Member could not be deleted from Firestore. Please try again.");
+    }
+  }
+
   function assignMentor() {
     if (!selectedUser) {
       setMessage("Select a member first.");
@@ -2077,6 +2320,7 @@ export function AdminMembers() {
           </div>
         ) : null}
         <div className="grid2"><button className="button buttonSecondary" type="button" onClick={openSelectedMemberInfo}>View Member Info</button><button className="button buttonSecondary" type="button" onClick={changeSelectedRole}>Change Role</button></div>
+        <button className="button buttonDanger" type="button" onClick={deleteSelectedMember}>Delete Member</button>
         <div className="bottomActions"><button className="button" type="button" onClick={approveSelected}>Approve Pending Member</button></div>
       </div>
       <AdminTabBar active="dashboard" />
@@ -2089,13 +2333,28 @@ export function AdminMemberInfo() {
   const [message, setMessage] = useState("");
 
   useEffect(() => {
-    ensureTestUsers();
-    const selectedMember = readJson(STORAGE_KEYS.selectedMember, null);
-    const users = readJson(STORAGE_KEYS.users, []);
-    const latestMember = selectedMember
-      ? users.find((user) => user.id === selectedMember.id || user.email === selectedMember.email)
-      : null;
-    setMember(latestMember || selectedMember || users[0] || null);
+    async function loadMember() {
+      ensureTestUsers();
+      const selectedMember = readJson(STORAGE_KEYS.selectedMember, null);
+      let users = readJson(STORAGE_KEYS.users, []);
+
+      try {
+        const firestoreUsers = await readFirestoreUsers();
+        if (firestoreUsers.length) {
+          users = firestoreUsers;
+          writeJson(STORAGE_KEYS.users, firestoreUsers);
+        }
+      } catch {
+        setMessage("Showing saved browser data. Firestore could not be reached.");
+      }
+
+      const latestMember = selectedMember
+        ? users.find((user) => user.id === selectedMember.id || user.email === selectedMember.email)
+        : null;
+      setMember(latestMember || selectedMember || users[0] || null);
+    }
+
+    loadMember();
   }, []);
 
   const history = getDiscipleshipHistory(member?.name);
@@ -2135,9 +2394,17 @@ export function AdminMemberInfo() {
             <div className="listItem"><strong>No discipleship record</strong><span className="status">No connected program yet.</span></div>
           )}
         </div>
+        <div className="card cardFilled">
+          <strong>Mentor Training Course</strong>
+          <p className="text">Admin can review the training record entered by the mentor.</p>
+        </div>
+        <div className="list">
+          <div className="listItem"><strong>Training Leader</strong><span className="status">{member?.mentorTrainingLeader || "-"}</span></div>
+          <div className="listItem"><strong>Start Date</strong><span className="status">{member?.mentorTrainingStartDate || "-"}</span></div>
+          <div className="listItem"><strong>Completion Date</strong><span className="status">{member?.mentorTrainingCompletionDate || "-"}</span></div>
+        </div>
         {message ? <p className="message">{message}</p> : null}
         <div className="bottomActions">
-          <button className="button" type="button" onClick={() => setMessage("Member information edit will be connected to the database version.")}>Save Member Info</button>
           <a className="button buttonSecondary" href="/admin/members">Back to Member Management</a>
         </div>
       </div>
