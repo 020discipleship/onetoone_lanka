@@ -1434,9 +1434,14 @@ h1 {
   .input,
   .textarea,
   .tableInput,
-  .birthDatePicker select,
-  .datePickerPanel select {
+  .birthDatePicker select {
     font-size: 16px;
+  }
+
+  .datePickerPanel select {
+    min-height: 26px;
+    padding: 0 3px;
+    font-size: 10px;
   }
 
   h1 {
