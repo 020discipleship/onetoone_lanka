@@ -2030,12 +2030,17 @@ export function AdminMonitoring() {
         <div className="list">
           {pagedInProgressPrograms.map((program) => {
             const displayWeek = getProgramWeekLabel(program);
+            const menteeProfile = getMemberProfile(program.name);
+            const trainingMessage = menteeProfile?.mentorTrainingCompletionDate
+              ? `Mentor training completed: ${menteeProfile.mentorTrainingCompletionDate}`
+              : "Mentor training not completed";
             return (
             <a className="listItem" href="/mentor/records" key={program.name} onClick={() => selectProgram({ ...program, week: displayWeek }, "admin")}>
               <div className="row"><strong>{program.name}</strong><span className="pill">In Progress</span></div>
               <span className="status">{program.mentor} / {displayWeek}</span>
+              <span className={`status trainingStatus ${menteeProfile?.mentorTrainingCompletionDate ? "ok" : "warn"}`}>{trainingMessage}</span>
             </a>
-            );
+          );
           })}
         </div>
         {inProgressPageCount > 1 ? (
