@@ -444,7 +444,7 @@ function parseDisplayDate(value) {
 function DatePickerCell({ record, canEditRecords, onChange }) {
   const [open, setOpen] = useState(false);
   const selected = parseDisplayDate(record.date);
-  const years = ["2026", "2027", "2028", "2029", "2030"];
+  const years = Array.from({ length: 9 }, (_, index) => String(2022 + index));
   const months = [
     ["01", "Jan"],
     ["02", "Feb"],
