@@ -129,7 +129,7 @@ function writeAssignedProgram(mentee, mentorName) {
 }
 
 function getMemberProfile(name) {
-  return TEST_USERS.find((user) => user.name === name);
+  return readJson(STORAGE_KEYS.users, []).find((user) => user.name === name) || TEST_USERS.find((user) => user.name === name);
 }
 
 function readJson(key, fallback) {
@@ -1326,6 +1326,7 @@ export function MentorRecordScreen() {
   const [testimony, setTestimony] = useState(null);
   const [selectedProgram, setSelectedProgram] = useState(DEFAULT_PROGRAM);
   const [programSource, setProgramSource] = useState("");
+  const [trainingRecord, setTrainingRecord] = useState({ startDate: "", completionDate: "", leader: "" });
 
   useEffect(() => {
     const currentUser = readJson(STORAGE_KEYS.currentUser, null);
@@ -1339,6 +1340,12 @@ export function MentorRecordScreen() {
     setProgramSource(readJson(STORAGE_KEYS.selectedProgramSource, ""));
     setRecords(readProgramRecords(nextSelectedProgram));
     setTestimony(readMenteeTestimony(nextSelectedProgram.name));
+    const menteeProfile = getMemberProfile(nextSelectedProgram.name);
+    setTrainingRecord({
+      startDate: menteeProfile?.mentorTrainingStartDate || "",
+      completionDate: menteeProfile?.mentorTrainingCompletionDate || "",
+      leader: menteeProfile?.mentorTrainingLeader || ""
+    });
   }, []);
 
   const isAdminView = user?.role === "Admin" || programSource.startsWith("admin");
@@ -1356,11 +1363,43 @@ export function MentorRecordScreen() {
     setMessage("");
   }
 
-  function saveRecords() {
+  function updateTrainingRecord(field, value) {
     if (!canEditRecords) return;
-    writeProgramRecords(programDetails, records);
-    setSelectedProgram(findProgram({ ...programDetails, week: getProgramWeekLabel(programDetails) }));
-    setMessage("Record saved. Mentee and Admin can now view these updates.");
+    setTrainingRecord((current) => ({ ...current, [field]: value }));
+    setMessage("");
+  }
+
+  async function saveRecords() {
+    if (!canEditRecords) return;
+    try {
+      writeProgramRecords(programDetails, records);
+      setSelectedProgram(findProgram({ ...programDetails, week: getProgramWeekLabel(programDetails) }));
+      let users = readJson(STORAGE_KEYS.users, []);
+      if (isFirebaseConfigured) {
+        const firestoreUsers = await readFirestoreUsers();
+        if (firestoreUsers.length) users = firestoreUsers;
+      }
+      const mentee = users.find((candidate) => candidate.name === programDetails.name);
+      if (mentee) {
+        const nextMentee = {
+          ...mentee,
+          mentorTrainingStartDate: trainingRecord.startDate,
+          mentorTrainingCompletionDate: trainingRecord.completionDate,
+          mentorTrainingLeader: trainingRecord.leader
+        };
+        writeJson(STORAGE_KEYS.users, users.map((candidate) => candidate.id === mentee.id ? nextMentee : candidate));
+        if (isFirebaseConfigured && nextMentee.id) {
+          await updateDoc(doc(db, "users", nextMentee.id), {
+            mentorTrainingStartDate: nextMentee.mentorTrainingStartDate,
+            mentorTrainingCompletionDate: nextMentee.mentorTrainingCompletionDate,
+            mentorTrainingLeader: nextMentee.mentorTrainingLeader
+          });
+        }
+      }
+      setMessage("Record saved. Mentee and Admin can now view these updates.");
+    } catch {
+      setMessage("Record could not be saved. Please try again.");
+    }
   }
 
   const title = isAdminView ? selectedProgram.status : "Weekly Record";
@@ -1393,6 +1432,35 @@ export function MentorRecordScreen() {
               <span>{canEditRecords ? <input className="tableInput" value={record.notes} onChange={(event) => updateRecord(record.week, "notes", event.target.value)} placeholder="Notes" /> : <span className="readonlyText">{record.notes || "Notes"}</span>}</span>
             </div>
           ))}
+        </div>
+        <div className="card cardFilled">
+          <strong>Mentor Training Course</strong>
+          <p className="text">Record only who led the training, when it began, and when it was completed.</p>
+        </div>
+        <div className="trainingRecordGrid">
+          <Field label="Training Leader">
+            {canEditRecords ? (
+              <input className="input" value={trainingRecord.leader} onChange={(event) => updateTrainingRecord("leader", event.target.value)} placeholder="Name of training leader" />
+            ) : (
+              <span className="readonlyText">{trainingRecord.leader || "-"}</span>
+            )}
+          </Field>
+          <div className="trainingDateRow">
+            <Field label="Start Date">
+              <DatePickerCell
+                record={{ week: "mentor-training-start", date: trainingRecord.startDate }}
+                canEditRecords={canEditRecords}
+                onChange={(value) => updateTrainingRecord("startDate", value)}
+              />
+            </Field>
+            <Field label="Completion Date">
+              <DatePickerCell
+                record={{ week: "mentor-training-completion", date: trainingRecord.completionDate }}
+                canEditRecords={canEditRecords}
+                onChange={(value) => updateTrainingRecord("completionDate", value)}
+              />
+            </Field>
+          </div>
         </div>
         {canEditRecords ? <div className="bottomActions"><button className="button" type="button" onClick={saveRecords}>Save Record</button></div> : null}
         {isAdminView ? (
@@ -2218,13 +2286,28 @@ export function AdminMemberInfo() {
   const [message, setMessage] = useState("");
 
   useEffect(() => {
-    ensureTestUsers();
-    const selectedMember = readJson(STORAGE_KEYS.selectedMember, null);
-    const users = readJson(STORAGE_KEYS.users, []);
-    const latestMember = selectedMember
-      ? users.find((user) => user.id === selectedMember.id || user.email === selectedMember.email)
-      : null;
-    setMember(latestMember || selectedMember || users[0] || null);
+    async function loadMember() {
+      ensureTestUsers();
+      const selectedMember = readJson(STORAGE_KEYS.selectedMember, null);
+      let users = readJson(STORAGE_KEYS.users, []);
+
+      try {
+        const firestoreUsers = await readFirestoreUsers();
+        if (firestoreUsers.length) {
+          users = firestoreUsers;
+          writeJson(STORAGE_KEYS.users, firestoreUsers);
+        }
+      } catch {
+        setMessage("Showing saved browser data. Firestore could not be reached.");
+      }
+
+      const latestMember = selectedMember
+        ? users.find((user) => user.id === selectedMember.id || user.email === selectedMember.email)
+        : null;
+      setMember(latestMember || selectedMember || users[0] || null);
+    }
+
+    loadMember();
   }, []);
 
   const history = getDiscipleshipHistory(member?.name);
@@ -2264,9 +2347,17 @@ export function AdminMemberInfo() {
             <div className="listItem"><strong>No discipleship record</strong><span className="status">No connected program yet.</span></div>
           )}
         </div>
+        <div className="card cardFilled">
+          <strong>Mentor Training Course</strong>
+          <p className="text">Admin can review the training record entered by the mentor.</p>
+        </div>
+        <div className="list">
+          <div className="listItem"><strong>Training Leader</strong><span className="status">{member?.mentorTrainingLeader || "-"}</span></div>
+          <div className="listItem"><strong>Start Date</strong><span className="status">{member?.mentorTrainingStartDate || "-"}</span></div>
+          <div className="listItem"><strong>Completion Date</strong><span className="status">{member?.mentorTrainingCompletionDate || "-"}</span></div>
+        </div>
         {message ? <p className="message">{message}</p> : null}
         <div className="bottomActions">
-          <button className="button" type="button" onClick={() => setMessage("Member information edit will be connected to the database version.")}>Save Member Info</button>
           <a className="button buttonSecondary" href="/admin/members">Back to Member Management</a>
         </div>
       </div>
