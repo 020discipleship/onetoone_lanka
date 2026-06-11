@@ -1185,6 +1185,7 @@ export function MentorDashboard() {
   const [assignedMentees, setAssignedMentees] = useState(mentorMentees.length);
   const [completedMentees, setCompletedMentees] = useState(0);
   const [progressValue, setProgressValue] = useState(0);
+  const [menteeTestimonies, setMenteeTestimonies] = useState([]);
 
   useEffect(() => {
     const currentUser = readJson(STORAGE_KEYS.currentUser, null);
@@ -1194,9 +1195,22 @@ export function MentorDashboard() {
     const completedPrograms = mentorPrograms.filter((program) => getResolvedProgramStatus(program) === "Completed");
     setAssignedMentees(activePrograms.length);
     setCompletedMentees(completedPrograms.length);
-    const firstProgram = activePrograms[0] || completedPrograms[0] || DEFAULT_PROGRAM;
-    setCurrentWeek(getProgramWeekLabel(firstProgram));
-    setProgressValue(getProgramProgressValue(firstProgram));
+    const averageProgress = mentorPrograms.length
+      ? Math.round(mentorPrograms.reduce((sum, program) => sum + getProgramProgressValue(program), 0) / mentorPrograms.length)
+      : 0;
+    const furthestWeek = mentorPrograms.reduce((highestWeek, program) => {
+      const weekNumber = Number(String(getProgramWeekLabel(program)).replace(/\D/g, "")) || 0;
+      return Math.max(highestWeek, weekNumber);
+    }, 0);
+    setCurrentWeek(furthestWeek ? `Week ${furthestWeek}` : DEFAULT_PROGRAM.week);
+    setProgressValue(averageProgress);
+    setMenteeTestimonies(mentorPrograms.map((program) => {
+      const testimony = readMenteeTestimony(program.name);
+      return {
+        name: program.name,
+        status: testimony?.status === "Submitted" ? "Completed" : "Not uploaded"
+      };
+    }));
   }, []);
 
   return (
@@ -1205,6 +1219,19 @@ export function MentorDashboard() {
       <div className="content">
         <div className="grid2 mentorStats"><div className="metric"><span className="label">Assigned Mentees</span><h3>{assignedMentees}</h3></div><div className="metric"><span className="label">Completed Mentees</span><h3>{completedMentees}</h3></div></div>
         <div className="card"><div className="row"><strong>Discipleship Progress</strong><span className="status">{currentWeek} / {progressValue}%</span></div><div className="progress"><span style={{ width: `${progressValue}%` }} /></div></div>
+        <div className="card">
+          <strong>Testimony Status</strong>
+          <div className="list compactList">
+            {menteeTestimonies.length ? menteeTestimonies.map((testimony) => (
+              <div className="listItem" key={testimony.name}>
+                <strong>{testimony.name}</strong>
+                <span className={`status ${testimony.status === "Completed" ? "ok" : "warn"}`}>{testimony.status}</span>
+              </div>
+            )) : (
+              <div className="listItem"><strong>No assigned mentee</strong><span className="status">No testimony yet</span></div>
+            )}
+          </div>
+        </div>
         <div className="list"><a className="listItem" href="/mentor/mentees"><strong>Assigned Mentee List</strong><span className="status">Review records and give feedback</span></a><a className="listItem" href="/mentor/history"><strong>Mentee Discipleship History</strong><span className="status">Progress history by person</span></a></div>
       </div>
       <MentorTabBar active="dashboard" />
