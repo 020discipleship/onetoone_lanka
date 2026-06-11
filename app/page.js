@@ -65,11 +65,31 @@ function getProgramProgress(week) {
   return Math.min(100, Math.round((numericWeek / 16) * 100));
 }
 
+function hasSubmittedTestimony(menteeName) {
+  return readMenteeTestimony(menteeName)?.status === "Submitted";
+}
+
 function getCompletedRecordWeek(records) {
   const completedRecords = records.filter((record) =>
     record.date || record.qt || record.verse || record.notes
   );
   return completedRecords.at(-1)?.week || 0;
+}
+
+function getResolvedProgramStatus(program) {
+  const records = readProgramRecords(program);
+  const completedWeek = getCompletedRecordWeek(records);
+  if (completedWeek >= 16 && hasSubmittedTestimony(program?.name)) return "Completed";
+  if (completedWeek > 0) return "In Progress";
+  return program?.status === "Completed" ? "In Progress" : program?.status || "Not Started";
+}
+
+function getProgramProgressValue(program) {
+  const records = readProgramRecords(program);
+  const completedWeek = getCompletedRecordWeek(records);
+  const numericWeek = completedWeek || Number(String(program?.week || "").replace(/\D/g, "")) || 0;
+  if (numericWeek >= 16 && hasSubmittedTestimony(program?.name)) return 100;
+  return Math.min(95, Math.round((numericWeek / 16) * 95));
 }
 
 function getProgramWeekLabel(program) {
@@ -99,7 +119,7 @@ function findProgram(program) {
 }
 
 function findMenteeProgram(user) {
-  return [...readJson(STORAGE_KEYS.customPrograms, []), ...discipleshipPrograms].find((program) => program.name === user?.name && program.status !== "Completed") || {
+  return [...readJson(STORAGE_KEYS.customPrograms, []), ...discipleshipPrograms].find((program) => program.name === user?.name && getResolvedProgramStatus(program) !== "Completed") || {
     name: user?.name || "Mentee",
     mentor: "Not assigned",
     week: "Week 0",
@@ -223,7 +243,11 @@ function readProgramRecords(program) {
 function writeProgramRecords(program, records) {
   const completedWeek = getCompletedRecordWeek(records);
   const nextWeek = completedWeek ? `Week ${completedWeek}` : program.week;
-  const nextStatus = completedWeek >= 16 ? "Completed" : completedWeek > 0 ? "In Progress" : program.status;
+  const nextStatus = completedWeek >= 16 && hasSubmittedTestimony(program.name)
+    ? "Completed"
+    : completedWeek > 0
+      ? "In Progress"
+      : program.status;
   const programRecords = readJson(STORAGE_KEYS.programRecords, {});
   const menteeRecords = readJson(STORAGE_KEYS.menteeRecords, {});
   const nextProgramRecords = {
@@ -259,6 +283,17 @@ function writeMenteeTestimony(menteeName, testimony) {
   };
   writeJson(STORAGE_KEYS.testimonies, nextTestimonies);
   writeJson(STORAGE_KEYS.testimony, testimony);
+  const customPrograms = readJson(STORAGE_KEYS.customPrograms, []);
+  writeJson(STORAGE_KEYS.customPrograms, customPrograms.map((program) => {
+    if (program.name !== menteeName) return program;
+    const completedWeek = getCompletedRecordWeek(readProgramRecords(program));
+    const nextStatus = completedWeek >= 16 && testimony.status === "Submitted"
+      ? "Completed"
+      : completedWeek > 0
+        ? "In Progress"
+        : program.status;
+    return { ...program, status: nextStatus };
+  }));
 }
 
 function rolePath(role) {
@@ -1033,8 +1068,8 @@ export function MenteeDashboard() {
   const currentWeekNumber = getCompletedRecordWeek(records);
   const currentWeek = currentWeekNumber ? `Week ${currentWeekNumber}` : program.week;
   const recordsDone = records.filter((record) => record.date || record.qt || record.verse || record.notes).length;
-  const progressValue = getProgramProgress(currentWeek);
-  const displayStatus = currentWeekNumber >= 16 ? "Completed" : currentWeekNumber > 0 ? "In Progress" : program.status;
+  const progressValue = getProgramProgressValue(program);
+  const displayStatus = getResolvedProgramStatus(program);
   const testimonyComplete = testimony?.status === "Submitted";
 
   return (
@@ -1149,17 +1184,19 @@ export function MentorDashboard() {
   const [currentWeek, setCurrentWeek] = useState(DEFAULT_PROGRAM.week);
   const [assignedMentees, setAssignedMentees] = useState(mentorMentees.length);
   const [completedMentees, setCompletedMentees] = useState(0);
-  const progressValue = getProgramProgress(currentWeek);
+  const [progressValue, setProgressValue] = useState(0);
 
   useEffect(() => {
     const currentUser = readJson(STORAGE_KEYS.currentUser, null);
     const mentorName = currentUser?.role === "Mentor" ? currentUser.name : "Kim";
     const mentorPrograms = getAllPrograms().filter((program) => program.mentor === mentorName);
-    const activePrograms = mentorPrograms.filter((program) => program.status !== "Completed");
-    const completedPrograms = mentorPrograms.filter((program) => program.status === "Completed");
+    const activePrograms = mentorPrograms.filter((program) => getResolvedProgramStatus(program) !== "Completed");
+    const completedPrograms = mentorPrograms.filter((program) => getResolvedProgramStatus(program) === "Completed");
     setAssignedMentees(activePrograms.length);
     setCompletedMentees(completedPrograms.length);
-    setCurrentWeek(getProgramWeekLabel(activePrograms[0] || DEFAULT_PROGRAM));
+    const firstProgram = activePrograms[0] || completedPrograms[0] || DEFAULT_PROGRAM;
+    setCurrentWeek(getProgramWeekLabel(firstProgram));
+    setProgressValue(getProgramProgressValue(firstProgram));
   }, []);
 
   return (
@@ -1316,14 +1353,14 @@ export function MentorMenteeListScreen({ history = false }) {
     const currentUser = readJson(STORAGE_KEYS.currentUser, null);
     const mentorName = currentUser?.role === "Mentor" ? currentUser.name : "Kim";
     if (history) {
-      setRows(getAllPrograms().filter((program) => program.mentor === mentorName && program.status === "Completed").map((row) => ({
+      setRows(getAllPrograms().filter((program) => program.mentor === mentorName && getResolvedProgramStatus(program) === "Completed").map((row) => ({
         ...row,
         week: getProgramWeekLabel(row)
       })));
       return;
     }
 
-    setRows(getAllPrograms().filter((program) => program.mentor === mentorName && program.status !== "Completed").map((row) => ({
+    setRows(getAllPrograms().filter((program) => program.mentor === mentorName && getResolvedProgramStatus(program) !== "Completed").map((row) => ({
       ...row,
       week: getProgramWeekLabel(row)
     })));
@@ -1343,10 +1380,10 @@ export function MentorMenteeListScreen({ history = false }) {
               name: row.name,
               mentor: row.mentor,
               week: row.week,
-              status: history ? "Completed" : row.status
+              status: getResolvedProgramStatus(row)
             }, "mentor")}>
               <strong>{row.name}</strong>
-              <span className="status">{row.week} / {row.status}</span>
+              <span className="status">{row.week} / {getResolvedProgramStatus(row)}</span>
             </a>
           ))}
         </div>
@@ -1368,7 +1405,7 @@ export function MentorRecordScreen() {
   useEffect(() => {
     const currentUser = readJson(STORAGE_KEYS.currentUser, null);
     const savedProgram = readJson(STORAGE_KEYS.selectedProgram, null);
-    const mentorProgram = getAllPrograms().find((program) => program.mentor === currentUser?.name && program.status !== "Completed");
+    const mentorProgram = getAllPrograms().find((program) => program.mentor === currentUser?.name && getResolvedProgramStatus(program) !== "Completed");
     const nextSelectedProgram = currentUser?.role === "Mentor" && savedProgram?.mentor !== currentUser.name
       ? mentorProgram || savedProgram || DEFAULT_PROGRAM
       : savedProgram || mentorProgram || DEFAULT_PROGRAM;
@@ -1916,8 +1953,8 @@ export function AdminReports() {
     { label: "Admins", value: users.filter((user) => user.role === "Admin").length }
   ];
   const progressStats = [
-    { label: "In Progress", value: getAllPrograms().filter((program) => program.status !== "Completed").length },
-    { label: "Completed", value: getAllPrograms().filter((program) => program.status === "Completed").length }
+    { label: "In Progress", value: getAllPrograms().filter((program) => getResolvedProgramStatus(program) !== "Completed").length },
+    { label: "Completed", value: getAllPrograms().filter((program) => getResolvedProgramStatus(program) === "Completed").length }
   ];
   const maxRoleValue = Math.max(1, ...roleStats.map((item) => item.value));
   const maxProgressValue = Math.max(1, ...progressStats.map((item) => item.value));
@@ -2063,8 +2100,8 @@ export function AdminMonitoring() {
   }, []);
 
   const allPrograms = getAllPrograms();
-  const inProgressPrograms = allPrograms.filter((program) => program.status !== "Completed");
-  const completedPrograms = allPrograms.filter((program) => program.status === "Completed");
+  const inProgressPrograms = allPrograms.filter((program) => getResolvedProgramStatus(program) !== "Completed");
+  const completedPrograms = allPrograms.filter((program) => getResolvedProgramStatus(program) === "Completed");
   const pageSize = 5;
   const inProgressPageCount = Math.max(1, Math.ceil(inProgressPrograms.length / pageSize));
   const pagedInProgressPrograms = inProgressPrograms.slice(
@@ -2173,7 +2210,7 @@ export function AdminMembers() {
   const selectedUser = users.find((user) => user.id === selectedUserId);
   const mentors = users.filter((user) => user.role === "Mentor" && user.approved);
   const selectedProgramForUser = selectedUser?.role === "Mentee"
-    ? getAllPrograms().find((program) => program.name === selectedUser.name && program.status !== "Completed")
+    ? getAllPrograms().find((program) => program.name === selectedUser.name && getResolvedProgramStatus(program) !== "Completed")
     : null;
 
   function saveUsers(nextUsers, nextMessage) {
