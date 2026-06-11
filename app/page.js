@@ -206,7 +206,6 @@ function getAuthMessage(error, fallback) {
 
 function readProgramRecords(program) {
   const programDetails = findProgram(program);
-  if (programDetails.status === "Completed") return createEmptyRecords();
 
   const menteeRecords = readJson(STORAGE_KEYS.menteeRecords, {});
   if (menteeRecords[programDetails.name]) return menteeRecords[programDetails.name];
@@ -1004,11 +1003,29 @@ export function MenteeDashboard() {
   const [records, setRecords] = useState(() => createEmptyRecords());
 
   useEffect(() => {
-    const currentUser = readJson(STORAGE_KEYS.currentUser, null);
-    const currentProgram = findMenteeProgram(currentUser);
-    setUser(currentUser);
-    setProgram(currentProgram);
-    setRecords(readProgramRecords(currentProgram));
+    async function loadDashboard() {
+      const currentUser = readJson(STORAGE_KEYS.currentUser, null);
+      let users = readJson(STORAGE_KEYS.users, []);
+
+      try {
+        const firestoreUsers = await readFirestoreUsers();
+        if (firestoreUsers.length) {
+          users = firestoreUsers;
+          writeJson(STORAGE_KEYS.users, firestoreUsers);
+        }
+      } catch {
+        // Use saved browser data when Firestore is unavailable.
+      }
+
+      const freshUser = users.find((candidate) => candidate.id === currentUser?.id || candidate.email === currentUser?.email);
+      const nextUser = freshUser || currentUser;
+      const currentProgram = findMenteeProgram(nextUser);
+      setUser(nextUser);
+      setProgram(currentProgram);
+      setRecords(readProgramRecords(currentProgram));
+    }
+
+    loadDashboard();
   }, []);
 
   const currentWeekNumber = getCompletedRecordWeek(records);
@@ -1024,7 +1041,14 @@ export function MenteeDashboard() {
         <div className="card cardFilled"><div className="row"><div><div className="label">Welcome</div><strong>{user?.name || program.name}</strong><p className="text">Assigned Mentor: {program.mentor}</p></div><span className="pill">{displayStatus}</span></div></div>
         <div className="grid2"><div className="metric"><span className="label">Current Week</span><h3>{currentWeek}</h3></div><div className="metric"><span className="label">Records Done</span><h3>{recordsDone}/16</h3></div></div>
         <div className="card"><div className="row"><strong>Discipleship Progress</strong><span className="status">{progressValue}%</span></div><div className="progress"><span style={{ width: `${progressValue}%` }} /></div></div>
-        <div className="list"><a className="listItem" href="/mentee/records"><strong>Weekly Record Details</strong><span className="status">Latest: {currentWeek}</span></a><a className="listItem" href="/mentee/testimony"><strong>Testimony</strong><span className="status">Write and upload testimony</span></a></div>
+        <div className="list"><a className="listItem" href="/mentee/records"><strong>Weekly Record Details</strong><span className="status">Latest: {currentWeek}</span></a></div>
+        <div className="card">
+          <strong>Mentor Training Course</strong>
+          <p className="text">Training Leader: {user?.mentorTrainingLeader || "-"}</p>
+          <p className="text">Start Date: {user?.mentorTrainingStartDate || "-"}</p>
+          <p className="text">Completion Date: {user?.mentorTrainingCompletionDate || "-"}</p>
+        </div>
+        <div className="list"><a className="listItem" href="/mentee/testimony"><strong>Testimony</strong><span className="status">Write and upload testimony</span></a></div>
       </div>
       <MenteeTabBar active="dashboard" />
     </Phone>
@@ -1117,14 +1141,17 @@ export function TestimonyScreen() {
 export function MentorDashboard() {
   const [currentWeek, setCurrentWeek] = useState(DEFAULT_PROGRAM.week);
   const [assignedMentees, setAssignedMentees] = useState(mentorMentees.length);
-  const completedMentees = menteeHistory.filter((mentee) => mentee.status === "Completed").length;
+  const [completedMentees, setCompletedMentees] = useState(0);
   const progressValue = getProgramProgress(currentWeek);
 
   useEffect(() => {
     const currentUser = readJson(STORAGE_KEYS.currentUser, null);
     const mentorName = currentUser?.role === "Mentor" ? currentUser.name : "Kim";
-    const activePrograms = getAllPrograms().filter((program) => program.mentor === mentorName && program.status !== "Completed");
+    const mentorPrograms = getAllPrograms().filter((program) => program.mentor === mentorName);
+    const activePrograms = mentorPrograms.filter((program) => program.status !== "Completed");
+    const completedPrograms = mentorPrograms.filter((program) => program.status === "Completed");
     setAssignedMentees(activePrograms.length);
+    setCompletedMentees(completedPrograms.length);
     setCurrentWeek(getProgramWeekLabel(activePrograms[0] || DEFAULT_PROGRAM));
   }, []);
 
@@ -1282,7 +1309,10 @@ export function MentorMenteeListScreen({ history = false }) {
     const currentUser = readJson(STORAGE_KEYS.currentUser, null);
     const mentorName = currentUser?.role === "Mentor" ? currentUser.name : "Kim";
     if (history) {
-      setRows(menteeHistory.filter((row) => row.mentor === mentorName));
+      setRows(getAllPrograms().filter((program) => program.mentor === mentorName && program.status === "Completed").map((row) => ({
+        ...row,
+        week: getProgramWeekLabel(row)
+      })));
       return;
     }
 
@@ -1305,11 +1335,11 @@ export function MentorMenteeListScreen({ history = false }) {
             <a className="listItem" href="/mentor/records" key={row.name} onClick={() => selectProgram({
               name: row.name,
               mentor: row.mentor,
-              week: history ? row.period : row.week,
+              week: row.week,
               status: history ? "Completed" : row.status
             }, "mentor")}>
               <strong>{row.name}</strong>
-              <span className="status">{history ? row.period : row.week} / {row.status}</span>
+              <span className="status">{row.week} / {row.status}</span>
             </a>
           ))}
         </div>
@@ -2008,6 +2038,23 @@ export function AdminQna() {
 
 export function AdminMonitoring() {
   const [inProgressPage, setInProgressPage] = useState(1);
+  const [users, setUsers] = useState(() => readJson(STORAGE_KEYS.users, []));
+
+  useEffect(() => {
+    async function loadUsers() {
+      try {
+        const nextUsers = await readFirestoreUsers();
+        const usersWithAdmin = nextUsers.length ? nextUsers : readJson(STORAGE_KEYS.users, []);
+        writeJson(STORAGE_KEYS.users, usersWithAdmin);
+        setUsers(usersWithAdmin);
+      } catch {
+        setUsers(readJson(STORAGE_KEYS.users, []));
+      }
+    }
+
+    loadUsers();
+  }, []);
+
   const allPrograms = getAllPrograms();
   const inProgressPrograms = allPrograms.filter((program) => program.status !== "Completed");
   const completedPrograms = allPrograms.filter((program) => program.status === "Completed");
@@ -2030,7 +2077,7 @@ export function AdminMonitoring() {
         <div className="list">
           {pagedInProgressPrograms.map((program) => {
             const displayWeek = getProgramWeekLabel(program);
-            const menteeProfile = getMemberProfile(program.name);
+            const menteeProfile = users.find((candidate) => candidate.name === program.name) || getMemberProfile(program.name);
             const trainingMessage = menteeProfile?.mentorTrainingCompletionDate
               ? `Mentor training completed: ${menteeProfile.mentorTrainingCompletionDate}`
               : "Mentor training not completed";
