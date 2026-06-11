@@ -1001,6 +1001,7 @@ export function MenteeDashboard() {
   const [user, setUser] = useState(null);
   const [program, setProgram] = useState(DEFAULT_PROGRAM);
   const [records, setRecords] = useState(() => createEmptyRecords());
+  const [testimony, setTestimony] = useState(null);
 
   useEffect(() => {
     async function loadDashboard() {
@@ -1023,6 +1024,7 @@ export function MenteeDashboard() {
       setUser(nextUser);
       setProgram(currentProgram);
       setRecords(readProgramRecords(currentProgram));
+      setTestimony(readMenteeTestimony(nextUser?.name));
     }
 
     loadDashboard();
@@ -1033,6 +1035,7 @@ export function MenteeDashboard() {
   const recordsDone = records.filter((record) => record.date || record.qt || record.verse || record.notes).length;
   const progressValue = getProgramProgress(currentWeek);
   const displayStatus = currentWeekNumber >= 16 ? "Completed" : currentWeekNumber > 0 ? "In Progress" : program.status;
+  const testimonyComplete = testimony?.status === "Submitted";
 
   return (
     <Phone id="mentee-dashboard">
@@ -1048,7 +1051,7 @@ export function MenteeDashboard() {
           <p className="text">Start Date: {user?.mentorTrainingStartDate || "-"}</p>
           <p className="text">Completion Date: {user?.mentorTrainingCompletionDate || "-"}</p>
         </div>
-        <div className="list"><a className="listItem" href="/mentee/testimony"><strong>Testimony</strong><span className="status">Write and upload testimony</span></a></div>
+        <div className="list"><a className="listItem" href="/mentee/testimony"><strong>Testimony</strong><span className={`status ${testimonyComplete ? "ok" : "warn"}`}>{testimonyComplete ? "Completed" : "Write and upload testimony"}</span></a></div>
       </div>
       <MenteeTabBar active="dashboard" />
     </Phone>
@@ -1100,6 +1103,7 @@ export function TestimonyScreen() {
   const [body, setBody] = useState("");
   const [message, setMessage] = useState("");
   const [user, setUser] = useState(null);
+  const [testimonyStatus, setTestimonyStatus] = useState("Draft");
 
   useEffect(() => {
     const currentUser = readJson(STORAGE_KEYS.currentUser, null);
@@ -1108,6 +1112,7 @@ export function TestimonyScreen() {
     if (saved) {
       setTitle(saved.title || "");
       setBody(saved.body || "");
+      setTestimonyStatus(saved.status || "Draft");
     }
   }, []);
 
@@ -1120,6 +1125,7 @@ export function TestimonyScreen() {
       savedAt: new Date().toISOString()
     };
     writeMenteeTestimony(user?.name || "Yoon", nextTestimony);
+    setTestimonyStatus(status);
     setMessage(status === "Submitted" ? "Testimony uploaded for admin review." : "Testimony draft saved.");
   }
 
@@ -1127,6 +1133,7 @@ export function TestimonyScreen() {
     <Phone id="mentee-testimony">
       <AppBar title="Testimony Management" left={<IconButton href="/mentee/dashboard">‹</IconButton>} right={<IconButton href="/">⌂</IconButton>} />
       <div className="content">
+        <div className="card cardFilled"><div className="row"><strong>Testimony</strong><span className="pill">{testimonyStatus === "Submitted" ? "Completed" : "Draft"}</span></div></div>
         <Field label="Testimony Title"><input className="input" value={title} onChange={(event) => setTitle(event.target.value)} /></Field>
         <Field label="Body"><textarea className="textarea" value={body} onChange={(event) => setBody(event.target.value)} placeholder="Write the testimony content." /></Field>
         {message ? <p className="message">{message}</p> : null}
