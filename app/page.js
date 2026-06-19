@@ -111,6 +111,10 @@ function getProgramKey(program) {
   return `${program?.mentor || "unknown"}--${program?.name || "unknown"}`;
 }
 
+function getFirestoreDocumentId(value) {
+  return encodeURIComponent(String(value || "unknown"));
+}
+
 function findProgram(program) {
   const matchedProgram = [...readJson(STORAGE_KEYS.customPrograms, []), ...discipleshipPrograms].find((candidate) =>
     candidate.name === program?.name && candidate.mentor === program?.mentor
@@ -132,7 +136,7 @@ function getAllPrograms() {
   return [...discipleshipPrograms, ...readJson(STORAGE_KEYS.customPrograms, [])];
 }
 
-function writeAssignedProgram(mentee, mentorName) {
+async function writeAssignedProgram(mentee, mentorName) {
   const programs = readJson(STORAGE_KEYS.customPrograms, []);
   const nextProgram = {
     name: mentee.name,
@@ -145,6 +149,9 @@ function writeAssignedProgram(mentee, mentorName) {
     STORAGE_KEYS.customPrograms,
     [...programs.filter((program) => program.name !== mentee.name), nextProgram]
   );
+  if (isFirebaseConfigured) {
+    await setDoc(doc(db, "programs", getFirestoreDocumentId(getProgramKey(nextProgram))), nextProgram, { merge: true });
+  }
   return nextProgram;
 }
 
@@ -199,6 +206,50 @@ async function writeFirestoreUser(user) {
   return nextUser;
 }
 
+async function syncFirestoreAppData({ includeRequests = false } = {}) {
+  if (!isFirebaseConfigured) return;
+
+  const reads = [
+    getDocs(collection(db, "programs")),
+    getDocs(collection(db, "discipleshipRecords")),
+    getDocs(collection(db, "testimonies"))
+  ];
+  if (includeRequests) reads.push(getDocs(collection(db, "adminRequests")));
+  const [programSnapshot, recordSnapshot, testimonySnapshot, requestSnapshot] = await Promise.all(reads);
+
+  const programs = programSnapshot.docs.map((item) => item.data());
+  if (programs.length) writeJson(STORAGE_KEYS.customPrograms, programs);
+
+  if (!recordSnapshot.empty) {
+    const programRecords = {};
+    const menteeRecords = {};
+    recordSnapshot.docs.forEach((item) => {
+      const value = item.data();
+      if (!Array.isArray(value.records)) return;
+      programRecords[value.programKey || getProgramKey(value)] = value.records;
+      if (value.menteeName) menteeRecords[value.menteeName] = value.records;
+    });
+    writeJson(STORAGE_KEYS.programRecords, programRecords);
+    writeJson(STORAGE_KEYS.menteeRecords, menteeRecords);
+  }
+
+  if (!testimonySnapshot.empty) {
+    const testimonies = {};
+    testimonySnapshot.docs.forEach((item) => {
+      const value = item.data();
+      if (value.menteeName) testimonies[value.menteeName] = value;
+    });
+    writeJson(STORAGE_KEYS.testimonies, testimonies);
+  }
+
+  if (requestSnapshot) {
+    const requests = requestSnapshot.docs
+      .map((item) => ({ id: item.id, ...item.data() }))
+      .sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
+    writeJson(STORAGE_KEYS.adminRequests, requests);
+  }
+}
+
 async function ensureAdminFirestoreUser(firebaseUser) {
   const adminUser = normalizeUser({
     ...TEST_USERS[0],
@@ -240,7 +291,7 @@ function readProgramRecords(program) {
   return createEmptyRecords();
 }
 
-function writeProgramRecords(program, records) {
+async function writeProgramRecords(program, records) {
   const completedWeek = getCompletedRecordWeek(records);
   const nextWeek = completedWeek ? `Week ${completedWeek}` : program.week;
   const nextStatus = completedWeek >= 16 && hasSubmittedTestimony(program.name)
@@ -268,6 +319,19 @@ function writeProgramRecords(program, records) {
     ));
   }
   writeJson(STORAGE_KEYS.selectedProgram, { ...program, week: nextWeek, status: nextStatus });
+  if (isFirebaseConfigured) {
+    const nextProgram = { ...program, week: nextWeek, status: nextStatus };
+    await Promise.all([
+      setDoc(doc(db, "discipleshipRecords", getFirestoreDocumentId(getProgramKey(program))), {
+        programKey: getProgramKey(program),
+        menteeName: program.name,
+        mentorName: program.mentor,
+        records,
+        updatedAt: new Date().toISOString()
+      }),
+      setDoc(doc(db, "programs", getFirestoreDocumentId(getProgramKey(program))), nextProgram, { merge: true })
+    ]);
+  }
 }
 
 function readMenteeTestimony(menteeName) {
@@ -275,7 +339,7 @@ function readMenteeTestimony(menteeName) {
   return testimonies[menteeName] || readJson(STORAGE_KEYS.testimony, null);
 }
 
-function writeMenteeTestimony(menteeName, testimony) {
+async function writeMenteeTestimony(menteeName, testimony) {
   const testimonies = readJson(STORAGE_KEYS.testimonies, {});
   const nextTestimonies = {
     ...testimonies,
@@ -294,6 +358,12 @@ function writeMenteeTestimony(menteeName, testimony) {
         : program.status;
     return { ...program, status: nextStatus };
   }));
+  if (isFirebaseConfigured) {
+    await setDoc(doc(db, "testimonies", getFirestoreDocumentId(menteeName)), {
+      ...testimony,
+      menteeName
+    }, { merge: true });
+  }
 }
 
 function rolePath(role) {
@@ -413,7 +483,7 @@ function downloadResourceFile(file) {
   URL.revokeObjectURL(url);
 }
 
-function writeAdminRequest(request) {
+async function writeAdminRequest(request) {
   const requestId = request.id || crypto.randomUUID();
   const createdAt = request.createdAt || new Date().toISOString();
   const nextRequest = {
@@ -438,6 +508,10 @@ function writeAdminRequest(request) {
     },
     ...notifications
   ]);
+  if (isFirebaseConfigured) {
+    await setDoc(doc(db, "adminRequests", requestId), nextRequest, { merge: true });
+  }
+  return nextRequest;
 }
 
 function getDiscipleshipHistory(memberName) {
@@ -1044,6 +1118,7 @@ export function MenteeDashboard() {
       let users = readJson(STORAGE_KEYS.users, []);
 
       try {
+        await syncFirestoreAppData();
         const firestoreUsers = await readFirestoreUsers();
         if (firestoreUsers.length) {
           users = firestoreUsers;
@@ -1098,10 +1173,18 @@ export function MenteeWeekScreen() {
   const [records, setRecords] = useState(() => createEmptyRecords());
 
   useEffect(() => {
-    const currentUser = readJson(STORAGE_KEYS.currentUser, null);
-    const currentProgram = findMenteeProgram(currentUser);
-    setProgram(currentProgram);
-    setRecords(readProgramRecords(currentProgram));
+    async function loadRecords() {
+      try {
+        await syncFirestoreAppData();
+      } catch {
+        // Keep the most recently cached records available offline.
+      }
+      const currentUser = readJson(STORAGE_KEYS.currentUser, null);
+      const currentProgram = findMenteeProgram(currentUser);
+      setProgram(currentProgram);
+      setRecords(readProgramRecords(currentProgram));
+    }
+    loadRecords();
   }, []);
 
   const currentWeekNumber = getCompletedRecordWeek(records);
@@ -1141,17 +1224,25 @@ export function TestimonyScreen() {
   const [testimonyStatus, setTestimonyStatus] = useState("Draft");
 
   useEffect(() => {
-    const currentUser = readJson(STORAGE_KEYS.currentUser, null);
-    setUser(currentUser);
-    const saved = readMenteeTestimony(currentUser?.name);
-    if (saved) {
-      setTitle(saved.title || "");
-      setBody(saved.body || "");
-      setTestimonyStatus(saved.status || "Draft");
+    async function loadTestimony() {
+      try {
+        await syncFirestoreAppData();
+      } catch {
+        // Keep the most recently cached testimony available offline.
+      }
+      const currentUser = readJson(STORAGE_KEYS.currentUser, null);
+      setUser(currentUser);
+      const saved = readMenteeTestimony(currentUser?.name);
+      if (saved) {
+        setTitle(saved.title || "");
+        setBody(saved.body || "");
+        setTestimonyStatus(saved.status || "Draft");
+      }
     }
+    loadTestimony();
   }, []);
 
-  function saveTestimony(status = "Draft") {
+  async function saveTestimony(status = "Draft") {
     const nextTestimony = {
       title,
       body,
@@ -1159,9 +1250,13 @@ export function TestimonyScreen() {
       menteeName: user?.name || "Yoon",
       savedAt: new Date().toISOString()
     };
-    writeMenteeTestimony(user?.name || "Yoon", nextTestimony);
-    setTestimonyStatus(status);
-    setMessage(status === "Submitted" ? "Testimony uploaded for admin review." : "Testimony draft saved.");
+    try {
+      await writeMenteeTestimony(user?.name || "Yoon", nextTestimony);
+      setTestimonyStatus(status);
+      setMessage(status === "Submitted" ? "Testimony uploaded for admin review." : "Testimony draft saved.");
+    } catch {
+      setMessage("Testimony could not be saved to Firestore. Please try again.");
+    }
   }
 
   return (
@@ -1235,10 +1330,12 @@ export function MentorQna() {
   useEffect(() => {
     const currentUser = readJson(STORAGE_KEYS.currentUser, null);
     setUser(currentUser);
-    loadRequests(currentUser);
+    syncFirestoreAppData({ includeRequests: true })
+      .catch(() => {})
+      .finally(() => loadRequests(currentUser));
   }, []);
 
-  function submitQuestion(event) {
+  async function submitQuestion(event) {
     event.preventDefault();
     if (!title.trim() || !detail.trim()) {
       setMessage("Please enter a title and question.");
@@ -1246,19 +1343,23 @@ export function MentorQna() {
     }
 
     const currentUser = user || readJson(STORAGE_KEYS.currentUser, null);
-    writeAdminRequest({
-      sender: currentUser?.name || "Mentor",
-      senderEmail: currentUser?.email || "",
-      role: "Mentor",
-      title: title.trim(),
-      detail: detail.trim(),
-      status: "Open",
-      type: "qna"
-    });
-    setTitle("");
-    setDetail("");
-    setMessage("Question sent to Admin.");
-    loadRequests(currentUser);
+    try {
+      await writeAdminRequest({
+        sender: currentUser?.name || "Mentor",
+        senderEmail: currentUser?.email || "",
+        role: "Mentor",
+        title: title.trim(),
+        detail: detail.trim(),
+        status: "Open",
+        type: "qna"
+      });
+      setTitle("");
+      setDetail("");
+      setMessage("Question sent to Admin.");
+      loadRequests(currentUser);
+    } catch {
+      setMessage("Question could not be saved to Firestore. Please try again.");
+    }
   }
 
   return (
@@ -1302,10 +1403,12 @@ export function MenteeQna() {
   useEffect(() => {
     const currentUser = readJson(STORAGE_KEYS.currentUser, null);
     setUser(currentUser);
-    loadRequests(currentUser);
+    syncFirestoreAppData({ includeRequests: true })
+      .catch(() => {})
+      .finally(() => loadRequests(currentUser));
   }, []);
 
-  function submitQuestion(event) {
+  async function submitQuestion(event) {
     event.preventDefault();
     if (!title.trim() || !detail.trim()) {
       setMessage("Please enter a title and question.");
@@ -1313,19 +1416,23 @@ export function MenteeQna() {
     }
 
     const currentUser = user || readJson(STORAGE_KEYS.currentUser, null);
-    writeAdminRequest({
-      sender: currentUser?.name || "Mentee",
-      senderEmail: currentUser?.email || "",
-      role: "Mentee",
-      title: title.trim(),
-      detail: detail.trim(),
-      status: "Open",
-      type: "qna"
-    });
-    setTitle("");
-    setDetail("");
-    setMessage("Question sent to Admin.");
-    loadRequests(currentUser);
+    try {
+      await writeAdminRequest({
+        sender: currentUser?.name || "Mentee",
+        senderEmail: currentUser?.email || "",
+        role: "Mentee",
+        title: title.trim(),
+        detail: detail.trim(),
+        status: "Open",
+        type: "qna"
+      });
+      setTitle("");
+      setDetail("");
+      setMessage("Question sent to Admin.");
+      loadRequests(currentUser);
+    } catch {
+      setMessage("Question could not be saved to Firestore. Please try again.");
+    }
   }
 
   return (
@@ -1409,23 +1516,33 @@ export function MentorRecordScreen() {
   const [trainingRecord, setTrainingRecord] = useState({ startDate: "", completionDate: "", leader: "" });
 
   useEffect(() => {
-    const currentUser = readJson(STORAGE_KEYS.currentUser, null);
-    const savedProgram = readJson(STORAGE_KEYS.selectedProgram, null);
-    const mentorProgram = getAllPrograms().find((program) => program.mentor === currentUser?.name && getResolvedProgramStatus(program) !== "Completed");
-    const nextSelectedProgram = currentUser?.role === "Mentor" && savedProgram?.mentor !== currentUser.name
-      ? mentorProgram || savedProgram || DEFAULT_PROGRAM
-      : savedProgram || mentorProgram || DEFAULT_PROGRAM;
-    setUser(currentUser);
-    setSelectedProgram(nextSelectedProgram);
-    setProgramSource(readJson(STORAGE_KEYS.selectedProgramSource, ""));
-    setRecords(readProgramRecords(nextSelectedProgram));
-    setTestimony(readMenteeTestimony(nextSelectedProgram.name));
-    const menteeProfile = getMemberProfile(nextSelectedProgram.name);
-    setTrainingRecord({
-      startDate: menteeProfile?.mentorTrainingStartDate || "",
-      completionDate: menteeProfile?.mentorTrainingCompletionDate || "",
-      leader: menteeProfile?.mentorTrainingLeader || ""
-    });
+    async function loadRecord() {
+      try {
+        await Promise.all([syncFirestoreAppData(), readFirestoreUsers().then((users) => {
+          if (users.length) writeJson(STORAGE_KEYS.users, users);
+        })]);
+      } catch {
+        // Keep the most recently cached record available offline.
+      }
+      const currentUser = readJson(STORAGE_KEYS.currentUser, null);
+      const savedProgram = readJson(STORAGE_KEYS.selectedProgram, null);
+      const mentorProgram = getAllPrograms().find((program) => program.mentor === currentUser?.name && getResolvedProgramStatus(program) !== "Completed");
+      const nextSelectedProgram = currentUser?.role === "Mentor" && savedProgram?.mentor !== currentUser.name
+        ? mentorProgram || savedProgram || DEFAULT_PROGRAM
+        : savedProgram || mentorProgram || DEFAULT_PROGRAM;
+      setUser(currentUser);
+      setSelectedProgram(nextSelectedProgram);
+      setProgramSource(readJson(STORAGE_KEYS.selectedProgramSource, ""));
+      setRecords(readProgramRecords(nextSelectedProgram));
+      setTestimony(readMenteeTestimony(nextSelectedProgram.name));
+      const menteeProfile = getMemberProfile(nextSelectedProgram.name);
+      setTrainingRecord({
+        startDate: menteeProfile?.mentorTrainingStartDate || "",
+        completionDate: menteeProfile?.mentorTrainingCompletionDate || "",
+        leader: menteeProfile?.mentorTrainingLeader || ""
+      });
+    }
+    loadRecord();
   }, []);
 
   const isAdminView = user?.role === "Admin" || programSource.startsWith("admin");
@@ -1452,7 +1569,7 @@ export function MentorRecordScreen() {
   async function saveRecords() {
     if (!canEditRecords) return;
     try {
-      writeProgramRecords(programDetails, records);
+      await writeProgramRecords(programDetails, records);
       setSelectedProgram(findProgram({ ...programDetails, week: getProgramWeekLabel(programDetails) }));
       let users = readJson(STORAGE_KEYS.users, []);
       if (isFirebaseConfigured) {
@@ -2003,13 +2120,26 @@ export function AdminQna() {
   const [message, setMessage] = useState("");
 
   useEffect(() => {
-    const queuedRequests = readJson(STORAGE_KEYS.adminRequests, []);
-    const now = new Date().toISOString();
-    const readRequests = queuedRequests.map((request) => request.readAt ? request : { ...request, readAt: now });
-    if (queuedRequests.some((request) => !request.readAt)) {
-      writeJson(STORAGE_KEYS.adminRequests, readRequests);
+    async function loadAdminRequests() {
+      try {
+        await syncFirestoreAppData({ includeRequests: true });
+      } catch {
+        // Keep the most recently cached requests available offline.
+      }
+      const queuedRequests = readJson(STORAGE_KEYS.adminRequests, []);
+      const now = new Date().toISOString();
+      const readRequests = queuedRequests.map((request) => request.readAt ? request : { ...request, readAt: now });
+      if (queuedRequests.some((request) => !request.readAt)) {
+        writeJson(STORAGE_KEYS.adminRequests, readRequests);
+        if (isFirebaseConfigured) {
+          await Promise.all(readRequests.map((request) =>
+            setDoc(doc(db, "adminRequests", request.id), { readAt: request.readAt }, { merge: true })
+          ));
+        }
+      }
+      setRequests(readRequests);
     }
-    setRequests(readRequests);
+    loadAdminRequests().catch(() => setMessage("Requests could not be refreshed from Firestore."));
   }, []);
 
   function openRequest(request) {
@@ -2032,7 +2162,7 @@ export function AdminQna() {
     setAnswers((current) => ({ ...current, [requestId]: value }));
   }
 
-  function submitAnswer(request) {
+  async function submitAnswer(request) {
     const answer = (answers[request.id] || "").trim();
     if (!answer) {
       setMessage("Please enter an answer first.");
@@ -2046,6 +2176,18 @@ export function AdminQna() {
         : storedRequest
     );
     writeJson(STORAGE_KEYS.adminRequests, nextRequests);
+    if (isFirebaseConfigured) {
+      try {
+        await setDoc(doc(db, "adminRequests", request.id), {
+          answer,
+          status: "Answered",
+          answeredAt: new Date().toISOString()
+        }, { merge: true });
+      } catch {
+        setMessage("Answer could not be saved to Firestore. Please try again.");
+        return;
+      }
+    }
     setRequests((current) => current.map((currentRequest) =>
       currentRequest.id === request.id
         ? { ...currentRequest, answer, status: "Answered", answeredAt: new Date().toISOString() }
@@ -2294,7 +2436,7 @@ export function AdminMembers() {
     }
   }
 
-  function assignMentor() {
+  async function assignMentor() {
     if (!selectedUser) {
       setMessage("Select a member first.");
       return;
@@ -2308,8 +2450,12 @@ export function AdminMembers() {
       return;
     }
 
-    const nextProgram = writeAssignedProgram(selectedUser, selectedMentorName);
-    setMessage(`${selectedUser.name} assigned to ${nextProgram.mentor}. Progress starts at Week 0.`);
+    try {
+      const nextProgram = await writeAssignedProgram(selectedUser, selectedMentorName);
+      setMessage(`${selectedUser.name} assigned to ${nextProgram.mentor}. Progress starts at Week 0.`);
+    } catch {
+      setMessage("Mentor assignment could not be saved to Firestore. Please try again.");
+    }
   }
 
   function openMemberInfo(member) {
