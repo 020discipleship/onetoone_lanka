@@ -222,19 +222,25 @@ async function syncFirestoreAppData({ includeRequests = false } = {}) {
     getDocs(collection(db, "testimonies"))
   ];
   if (includeRequests) reads.push(getDocs(collection(db, "adminRequests")));
-  const [programSnapshot, recordSnapshot, testimonySnapshot, requestSnapshot] = await Promise.all(reads);
+  let [programSnapshot, recordSnapshot, testimonySnapshot, requestSnapshot] = await Promise.all(reads);
 
   // Older app versions stored everything only in this device's browser. Upload
   // documents that do not exist in Firestore yet before refreshing the cache.
-  const remoteProgramIds = new Set(programSnapshot.docs.map((item) => item.id));
-  const remoteRecordIds = new Set(recordSnapshot.docs.map((item) => item.id));
-  const remoteTestimonyIds = new Set(testimonySnapshot.docs.map((item) => item.id));
+  const remotePrograms = new Map(programSnapshot.docs.map((item) => [item.id, item.data()]));
+  const remoteRecords = new Map(recordSnapshot.docs.map((item) => [item.id, item.data()]));
+  const remoteTestimonies = new Map(testimonySnapshot.docs.map((item) => [item.id, item.data()]));
   const remoteRequestIds = new Set(requestSnapshot?.docs.map((item) => item.id) || []);
   const migrations = [];
+  const recordScore = (records) => Array.isArray(records)
+    ? records.reduce((score, record) => score + Number(Boolean(record.date)) + Number(Boolean(record.qt)) + Number(Boolean(record.verse)) + Number(Boolean(record.notes)), 0)
+    : 0;
 
   localPrograms.forEach((program) => {
     const documentId = getFirestoreDocumentId(getProgramKey(program));
-    if (!remoteProgramIds.has(documentId)) {
+    const remoteProgram = remotePrograms.get(documentId);
+    const localWeek = Number(String(program.week || "").replace(/\D/g, "")) || 0;
+    const remoteWeek = Number(String(remoteProgram?.week || "").replace(/\D/g, "")) || 0;
+    if (!remoteProgram || localWeek > remoteWeek || (program.status === "Completed" && remoteProgram.status !== "Completed")) {
       migrations.push(setDoc(doc(db, "programs", documentId), program));
     }
   });
@@ -242,7 +248,8 @@ async function syncFirestoreAppData({ includeRequests = false } = {}) {
   Object.entries(localProgramRecords).forEach(([programKey, records]) => {
     if (!Array.isArray(records)) return;
     const documentId = getFirestoreDocumentId(programKey);
-    if (remoteRecordIds.has(documentId)) return;
+    const remoteRecord = remoteRecords.get(documentId);
+    if (remoteRecord && recordScore(remoteRecord.records) >= recordScore(records)) return;
     const [mentorName = "unknown", menteeName = "unknown"] = programKey.split("--");
     migrations.push(setDoc(doc(db, "discipleshipRecords", documentId), {
       programKey,
@@ -259,7 +266,8 @@ async function syncFirestoreAppData({ includeRequests = false } = {}) {
     if (!program) return;
     const programKey = getProgramKey(program);
     const documentId = getFirestoreDocumentId(programKey);
-    if (remoteRecordIds.has(documentId) || localProgramRecords[programKey]) return;
+    const remoteRecord = remoteRecords.get(documentId);
+    if (localProgramRecords[programKey] || (remoteRecord && recordScore(remoteRecord.records) >= recordScore(records))) return;
     migrations.push(setDoc(doc(db, "discipleshipRecords", documentId), {
       programKey,
       mentorName: program.mentor,
@@ -275,7 +283,13 @@ async function syncFirestoreAppData({ includeRequests = false } = {}) {
   }
   Object.entries(testimoniesToMigrate).forEach(([menteeName, testimony]) => {
     const documentId = getFirestoreDocumentId(menteeName);
-    if (!remoteTestimonyIds.has(documentId)) {
+    const remoteTestimony = remoteTestimonies.get(documentId);
+    const localSavedAt = Date.parse(testimony?.savedAt || "") || 0;
+    const remoteSavedAt = Date.parse(remoteTestimony?.savedAt || "") || 0;
+    const localIsBetter = testimony?.status === "Submitted" && remoteTestimony?.status !== "Submitted"
+      || localSavedAt > remoteSavedAt
+      || String(testimony?.body || "").length > String(remoteTestimony?.body || "").length;
+    if (!remoteTestimony || localIsBetter) {
       migrations.push(setDoc(doc(db, "testimonies", documentId), { ...testimony, menteeName }));
     }
   });
@@ -286,7 +300,16 @@ async function syncFirestoreAppData({ includeRequests = false } = {}) {
     }
   });
 
-  if (migrations.length) await Promise.all(migrations);
+  if (migrations.length) {
+    await Promise.all(migrations);
+    const refreshedReads = [
+      getDocs(collection(db, "programs")),
+      getDocs(collection(db, "discipleshipRecords")),
+      getDocs(collection(db, "testimonies"))
+    ];
+    if (includeRequests) refreshedReads.push(getDocs(collection(db, "adminRequests")));
+    [programSnapshot, recordSnapshot, testimonySnapshot, requestSnapshot] = await Promise.all(refreshedReads);
+  }
 
   const programs = [
     ...localPrograms,
