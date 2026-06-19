@@ -1388,22 +1388,30 @@ export function MentorDashboard() {
   const [progressValue, setProgressValue] = useState(0);
 
   useEffect(() => {
-    const currentUser = readJson(STORAGE_KEYS.currentUser, null);
-    const mentorName = currentUser?.role === "Mentor" ? currentUser.name : "Kim";
-    const mentorPrograms = getAllPrograms().filter((program) => program.mentor === mentorName);
-    const activePrograms = mentorPrograms.filter((program) => getResolvedProgramStatus(program) !== "Completed");
-    const completedPrograms = mentorPrograms.filter((program) => getResolvedProgramStatus(program) === "Completed");
-    setAssignedMentees(activePrograms.length);
-    setCompletedMentees(completedPrograms.length);
-    const averageProgress = mentorPrograms.length
-      ? Math.round(mentorPrograms.reduce((sum, program) => sum + getProgramProgressValue(program), 0) / mentorPrograms.length)
-      : 0;
-    const furthestWeek = mentorPrograms.reduce((highestWeek, program) => {
-      const weekNumber = Number(String(getProgramWeekLabel(program)).replace(/\D/g, "")) || 0;
-      return Math.max(highestWeek, weekNumber);
-    }, 0);
-    setCurrentWeek(furthestWeek ? `Week ${furthestWeek}` : DEFAULT_PROGRAM.week);
-    setProgressValue(averageProgress);
+    async function loadDashboard() {
+      try {
+        await syncFirestoreAppData();
+      } catch {
+        // Keep the most recently cached dashboard data available offline.
+      }
+      const currentUser = readJson(STORAGE_KEYS.currentUser, null);
+      const mentorName = currentUser?.role === "Mentor" ? currentUser.name : "Kim";
+      const mentorPrograms = getAllPrograms().filter((program) => program.mentor === mentorName);
+      const activePrograms = mentorPrograms.filter((program) => getResolvedProgramStatus(program) !== "Completed");
+      const completedPrograms = mentorPrograms.filter((program) => getResolvedProgramStatus(program) === "Completed");
+      setAssignedMentees(activePrograms.length);
+      setCompletedMentees(completedPrograms.length);
+      const averageProgress = mentorPrograms.length
+        ? Math.round(mentorPrograms.reduce((sum, program) => sum + getProgramProgressValue(program), 0) / mentorPrograms.length)
+        : 0;
+      const furthestWeek = mentorPrograms.reduce((highestWeek, program) => {
+        const weekNumber = Number(String(getProgramWeekLabel(program)).replace(/\D/g, "")) || 0;
+        return Math.max(highestWeek, weekNumber);
+      }, 0);
+      setCurrentWeek(furthestWeek ? `Week ${furthestWeek}` : DEFAULT_PROGRAM.week);
+      setProgressValue(averageProgress);
+    }
+    loadDashboard();
   }, []);
 
   return (
@@ -1569,20 +1577,28 @@ export function MentorMenteeListScreen({ history = false }) {
   const [rows, setRows] = useState(history ? menteeHistory : mentorMentees);
 
   useEffect(() => {
-    const currentUser = readJson(STORAGE_KEYS.currentUser, null);
-    const mentorName = currentUser?.role === "Mentor" ? currentUser.name : "Kim";
-    if (history) {
-      setRows(getAllPrograms().filter((program) => program.mentor === mentorName && getResolvedProgramStatus(program) === "Completed").map((row) => ({
+    async function loadMentees() {
+      try {
+        await syncFirestoreAppData();
+      } catch {
+        // Keep the most recently cached mentee list available offline.
+      }
+      const currentUser = readJson(STORAGE_KEYS.currentUser, null);
+      const mentorName = currentUser?.role === "Mentor" ? currentUser.name : "Kim";
+      if (history) {
+        setRows(getAllPrograms().filter((program) => program.mentor === mentorName && getResolvedProgramStatus(program) === "Completed").map((row) => ({
+          ...row,
+          week: getProgramWeekLabel(row)
+        })));
+        return;
+      }
+
+      setRows(getAllPrograms().filter((program) => program.mentor === mentorName && getResolvedProgramStatus(program) !== "Completed").map((row) => ({
         ...row,
         week: getProgramWeekLabel(row)
       })));
-      return;
     }
-
-    setRows(getAllPrograms().filter((program) => program.mentor === mentorName && getResolvedProgramStatus(program) !== "Completed").map((row) => ({
-      ...row,
-      week: getProgramWeekLabel(row)
-    })));
+    loadMentees();
   }, [history]);
 
   return (
@@ -2123,6 +2139,7 @@ export function AdminDashboard() {
   useEffect(() => {
     async function loadUsers() {
       try {
+        await syncFirestoreAppData();
         const nextUsers = await readFirestoreUsers();
         const usersWithAdmin = nextUsers.length ? nextUsers : TEST_USERS;
         writeJson(STORAGE_KEYS.users, usersWithAdmin);
@@ -2340,6 +2357,7 @@ export function AdminMonitoring() {
   useEffect(() => {
     async function loadUsers() {
       try {
+        await syncFirestoreAppData();
         const nextUsers = await readFirestoreUsers();
         const usersWithAdmin = nextUsers.length ? nextUsers : readJson(STORAGE_KEYS.users, []);
         writeJson(STORAGE_KEYS.users, usersWithAdmin);
