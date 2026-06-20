@@ -209,144 +209,37 @@ async function writeFirestoreUser(user) {
 async function syncFirestoreAppData({ includeRequests = false } = {}) {
   if (!isFirebaseConfigured) return;
 
-  const localPrograms = readJson(STORAGE_KEYS.customPrograms, []);
-  const localProgramRecords = readJson(STORAGE_KEYS.programRecords, {});
-  const localMenteeRecords = readJson(STORAGE_KEYS.menteeRecords, {});
-  const localTestimonies = readJson(STORAGE_KEYS.testimonies, {});
-  const legacyTestimony = readJson(STORAGE_KEYS.testimony, null);
-  const localRequests = includeRequests ? readJson(STORAGE_KEYS.adminRequests, []) : [];
-
   const reads = [
     getDocs(collection(db, "programs")),
     getDocs(collection(db, "discipleshipRecords")),
     getDocs(collection(db, "testimonies"))
   ];
   if (includeRequests) reads.push(getDocs(collection(db, "adminRequests")));
-  let [programSnapshot, recordSnapshot, testimonySnapshot, requestSnapshot] = await Promise.all(reads);
+  const [programSnapshot, recordSnapshot, testimonySnapshot, requestSnapshot] = await Promise.all(reads);
 
-  // Older app versions stored everything only in this device's browser. Upload
-  // documents that do not exist in Firestore yet before refreshing the cache.
-  const remotePrograms = new Map(programSnapshot.docs.map((item) => [item.id, item.data()]));
-  const remoteRecords = new Map(recordSnapshot.docs.map((item) => [item.id, item.data()]));
-  const remoteTestimonies = new Map(testimonySnapshot.docs.map((item) => [item.id, item.data()]));
-  const remoteRequestIds = new Set(requestSnapshot?.docs.map((item) => item.id) || []);
-  const migrations = [];
-  const recordScore = (records) => Array.isArray(records)
-    ? records.reduce((score, record) => score + Number(Boolean(record.date)) + Number(Boolean(record.qt)) + Number(Boolean(record.verse)) + Number(Boolean(record.notes)), 0)
-    : 0;
+  writeJson(STORAGE_KEYS.customPrograms, programSnapshot.docs.map((item) => item.data()));
 
-  localPrograms.forEach((program) => {
-    const documentId = getFirestoreDocumentId(getProgramKey(program));
-    const remoteProgram = remotePrograms.get(documentId);
-    const localWeek = Number(String(program.week || "").replace(/\D/g, "")) || 0;
-    const remoteWeek = Number(String(remoteProgram?.week || "").replace(/\D/g, "")) || 0;
-    if (!remoteProgram || localWeek > remoteWeek || (program.status === "Completed" && remoteProgram.status !== "Completed")) {
-      migrations.push(setDoc(doc(db, "programs", documentId), program));
-    }
+  const programRecords = {};
+  const menteeRecords = {};
+  recordSnapshot.docs.forEach((item) => {
+    const value = item.data();
+    if (!Array.isArray(value.records)) return;
+    programRecords[value.programKey || getProgramKey(value)] = value.records;
+    if (value.menteeName) menteeRecords[value.menteeName] = value.records;
   });
+  writeJson(STORAGE_KEYS.programRecords, programRecords);
+  writeJson(STORAGE_KEYS.menteeRecords, menteeRecords);
 
-  Object.entries(localProgramRecords).forEach(([programKey, records]) => {
-    if (!Array.isArray(records)) return;
-    const documentId = getFirestoreDocumentId(programKey);
-    const remoteRecord = remoteRecords.get(documentId);
-    if (remoteRecord && recordScore(remoteRecord.records) >= recordScore(records)) return;
-    const [mentorName = "unknown", menteeName = "unknown"] = programKey.split("--");
-    migrations.push(setDoc(doc(db, "discipleshipRecords", documentId), {
-      programKey,
-      mentorName,
-      menteeName,
-      records,
-      migratedAt: new Date().toISOString()
-    }));
+  const testimonies = {};
+  testimonySnapshot.docs.forEach((item) => {
+    const value = item.data();
+    if (value.menteeName) testimonies[value.menteeName] = value;
   });
-
-  Object.entries(localMenteeRecords).forEach(([menteeName, records]) => {
-    if (!Array.isArray(records)) return;
-    const program = localPrograms.find((item) => item.name === menteeName);
-    if (!program) return;
-    const programKey = getProgramKey(program);
-    const documentId = getFirestoreDocumentId(programKey);
-    const remoteRecord = remoteRecords.get(documentId);
-    if (localProgramRecords[programKey] || (remoteRecord && recordScore(remoteRecord.records) >= recordScore(records))) return;
-    migrations.push(setDoc(doc(db, "discipleshipRecords", documentId), {
-      programKey,
-      mentorName: program.mentor,
-      menteeName,
-      records,
-      migratedAt: new Date().toISOString()
-    }));
-  });
-
-  const testimoniesToMigrate = { ...localTestimonies };
-  if (legacyTestimony?.menteeName && !testimoniesToMigrate[legacyTestimony.menteeName]) {
-    testimoniesToMigrate[legacyTestimony.menteeName] = legacyTestimony;
-  }
-  Object.entries(testimoniesToMigrate).forEach(([menteeName, testimony]) => {
-    const documentId = getFirestoreDocumentId(menteeName);
-    const remoteTestimony = remoteTestimonies.get(documentId);
-    const localSavedAt = Date.parse(testimony?.savedAt || "") || 0;
-    const remoteSavedAt = Date.parse(remoteTestimony?.savedAt || "") || 0;
-    const localIsBetter = testimony?.status === "Submitted" && remoteTestimony?.status !== "Submitted"
-      || localSavedAt > remoteSavedAt
-      || String(testimony?.body || "").length > String(remoteTestimony?.body || "").length;
-    if (!remoteTestimony || localIsBetter) {
-      migrations.push(setDoc(doc(db, "testimonies", documentId), { ...testimony, menteeName }));
-    }
-  });
-
-  localRequests.forEach((request) => {
-    if (request.id && !remoteRequestIds.has(request.id)) {
-      migrations.push(setDoc(doc(db, "adminRequests", request.id), request));
-    }
-  });
-
-  if (migrations.length) {
-    await Promise.all(migrations);
-    const refreshedReads = [
-      getDocs(collection(db, "programs")),
-      getDocs(collection(db, "discipleshipRecords")),
-      getDocs(collection(db, "testimonies"))
-    ];
-    if (includeRequests) refreshedReads.push(getDocs(collection(db, "adminRequests")));
-    [programSnapshot, recordSnapshot, testimonySnapshot, requestSnapshot] = await Promise.all(refreshedReads);
-  }
-
-  const programs = [
-    ...localPrograms,
-    ...programSnapshot.docs.map((item) => item.data())
-  ].filter((program, index, all) =>
-    all.findLastIndex((item) => getProgramKey(item) === getProgramKey(program)) === index
-  );
-  if (programs.length) writeJson(STORAGE_KEYS.customPrograms, programs);
-
-  if (!recordSnapshot.empty) {
-    const programRecords = { ...localProgramRecords };
-    const menteeRecords = { ...localMenteeRecords };
-    recordSnapshot.docs.forEach((item) => {
-      const value = item.data();
-      if (!Array.isArray(value.records)) return;
-      programRecords[value.programKey || getProgramKey(value)] = value.records;
-      if (value.menteeName) menteeRecords[value.menteeName] = value.records;
-    });
-    writeJson(STORAGE_KEYS.programRecords, programRecords);
-    writeJson(STORAGE_KEYS.menteeRecords, menteeRecords);
-  }
-
-  if (!testimonySnapshot.empty) {
-    const testimonies = { ...testimoniesToMigrate };
-    testimonySnapshot.docs.forEach((item) => {
-      const value = item.data();
-      if (value.menteeName) testimonies[value.menteeName] = value;
-    });
-    writeJson(STORAGE_KEYS.testimonies, testimonies);
-  }
+  writeJson(STORAGE_KEYS.testimonies, testimonies);
 
   if (requestSnapshot) {
-    const requests = [
-      ...localRequests,
-      ...requestSnapshot.docs.map((item) => ({ id: item.id, ...item.data() }))
-    ]
-      .filter((request, index, all) => all.findLastIndex((item) => item.id === request.id) === index)
+    const requests = requestSnapshot.docs
+      .map((item) => ({ id: item.id, ...item.data() }))
       .sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
     writeJson(STORAGE_KEYS.adminRequests, requests);
   }
