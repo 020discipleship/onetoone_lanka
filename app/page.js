@@ -2057,29 +2057,31 @@ export function ProfileScreen() {
       birthDate: form.birthDate,
       phone: form.phone,
       contact: form.contact,
-      church: form.contact,
       updatedAt: new Date().toISOString()
     };
 
     try {
       if (isFirebaseConfigured) {
-        await updateDoc(doc(db, "users", user.id), {
+        const profileUserId = auth?.currentUser?.uid || user.id;
+        await updateDoc(doc(db, "users", profileUserId), {
           name: nextUser.name,
           birthDate: nextUser.birthDate,
           phone: nextUser.phone,
           contact: nextUser.contact,
-          church: nextUser.church,
           updatedAt: nextUser.updatedAt
         });
       }
       const users = readJson(STORAGE_KEYS.users, []);
-      writeJson(STORAGE_KEYS.users, users.map((candidate) => candidate.id === user.id ? nextUser : candidate));
+      writeJson(STORAGE_KEYS.users, users.map((candidate) =>
+        candidate.id === user.id || candidate.email === user.email ? nextUser : candidate
+      ));
       writeJson(STORAGE_KEYS.currentUser, nextUser);
       setUser(nextUser);
       setIsEditing(false);
       setMessage("Profile updated.");
-    } catch {
-      setMessage("Profile could not be saved. Please try again.");
+    } catch (error) {
+      const errorCode = error?.code ? ` (${error.code})` : "";
+      setMessage(`Profile could not be saved${errorCode}. Please try again.`);
     }
   }
 
